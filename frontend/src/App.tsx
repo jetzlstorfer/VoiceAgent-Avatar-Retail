@@ -77,6 +77,7 @@ function App() {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [micActive, setMicActive] = useState(false);
     const [avatarReady, setAvatarReady] = useState(false);
+    const [avatarLoading, setAvatarLoading] = useState(false);
     const [assistantTranscript, setAssistantTranscript] = useState("");
     const [userTranscript, setUserTranscript] = useState("");
     const [entries, appendLog] = useLog();
@@ -330,86 +331,101 @@ function App() {
             appendLog("Avatar already connected");
             return;
         }
-        const pc = new RTCPeerConnection({
-            bundlePolicy: "max-bundle",
-            iceServers: avatarIceServers,
-        });
-        pcRef.current = pc;
 
-        pc.addTransceiver("audio", { direction: "recvonly" });
-        pc.addTransceiver("video", { direction: "recvonly" });
+        setAvatarLoading(true);
+        appendLog("Initializing avatar connection...");
 
-        pc.ontrack = (event) => {
-            const [stream] = event.streams;
-            if (!stream) {
+        try {
+            const pc = new RTCPeerConnection({
+                bundlePolicy: "max-bundle",
+                iceServers: avatarIceServers,
+            });
+            pcRef.current = pc;
+
+            pc.addTransceiver("audio", { direction: "recvonly" });
+            pc.addTransceiver("video", { direction: "recvonly" });
+
+                pc.ontrack = (event) => {
+                const [stream] = event.streams;
+                if (!stream) {
+                    return;
+                }
+
+                if (event.track.kind === "video" && videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    videoRef.current
+                        .play()
+                        .catch(() => {
+                            /* ignore auto-play rejection; user interaction already occurred */
+                        });
+                    appendLog("Avatar video track received");
+                }
+
+                if (event.track.kind === "audio") {
+                    let audioEl = remoteAudioRef.current;
+                    if (!audioEl) {
+                        audioEl = document.createElement("audio");
+                        audioEl.autoplay = true;
+                        audioEl.controls = false;
+                        audioEl.style.display = "none";
+                        audioEl.setAttribute("playsinline", "true");
+                        audioEl.muted = false;
+                        document.body.appendChild(audioEl);
+                        remoteAudioRef.current = audioEl;
+                    }
+                    audioEl.srcObject = stream;
+                    audioEl.play().catch(() => undefined);
+                    appendLog("Avatar audio track received");
+                }
+            };
+
+            const gatheringFinished = new Promise<void>((resolve) => {
+                if (pc.iceGatheringState === "complete") {
+                    resolve();
+                } else {
+                    pc.addEventListener("icegatheringstatechange", () => {
+                        if (pc.iceGatheringState === "complete") {
+                            resolve();
+                        }
+                    });
+                }
+            });
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await gatheringFinished;
+
+            const localSdp = pc.localDescription?.sdp;
+            if (!localSdp) {
+                appendLog("Failed to obtain local SDP");
                 return;
             }
 
-            if (event.track.kind === "video" && videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current
-                    .play()
-                    .catch(() => {
-                        /* ignore auto-play rejection; user interaction already occurred */
-                    });
-                appendLog("Avatar video track received");
+            const response = await fetch(`${BACKEND_HTTP_BASE}/sessions/${sessionId}/avatar-offer`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sdp: localSdp }),
+            });
+
+            if (!response.ok) {
+                appendLog(`Avatar offer failed: ${response.status}`);
+                setAvatarLoading(false);
+                return;
             }
 
-            if (event.track.kind === "audio") {
-                let audioEl = remoteAudioRef.current;
-                if (!audioEl) {
-                    audioEl = document.createElement("audio");
-                    audioEl.autoplay = true;
-                    audioEl.controls = false;
-                    audioEl.style.display = "none";
-                    audioEl.setAttribute("playsinline", "true");
-                    audioEl.muted = false;
-                    document.body.appendChild(audioEl);
-                    remoteAudioRef.current = audioEl;
-                }
-                audioEl.srcObject = stream;
-                audioEl.play().catch(() => undefined);
-                appendLog("Avatar audio track received");
+            const { sdp } = await response.json();
+            await pc.setRemoteDescription({ type: "answer", sdp });
+            setAvatarLoading(false);
+            setAvatarReady(true);
+            appendLog("Avatar connected");
+        } catch (error) {
+            appendLog(`Avatar connection error: ${String(error)}`);
+            setAvatarLoading(false);
+            if (pcRef.current) {
+                pcRef.current.close();
+                pcRef.current = null;
             }
-        };
-
-        const gatheringFinished = new Promise<void>((resolve) => {
-            if (pc.iceGatheringState === "complete") {
-                resolve();
-            } else {
-                pc.addEventListener("icegatheringstatechange", () => {
-                    if (pc.iceGatheringState === "complete") {
-                        resolve();
-                    }
-                });
-            }
-        });
-
-    const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await gatheringFinished;
-
-        const localSdp = pc.localDescription?.sdp;
-        if (!localSdp) {
-            appendLog("Failed to obtain local SDP");
-            return;
         }
-
-        const response = await fetch(`${BACKEND_HTTP_BASE}/sessions/${sessionId}/avatar-offer`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sdp: localSdp }),
-        });
-
-        if (!response.ok) {
-            appendLog(`Avatar offer failed: ${response.status}`);
-            return;
-        }
-
-        const { sdp } = await response.json();
-        await pc.setRemoteDescription({ type: "answer", sdp });
-        setAvatarReady(true);
-        appendLog("Avatar connected");
     }, [appendLog, sessionId, avatarIceServers]);
 
     const teardownAvatar = useCallback(() => {
@@ -424,6 +440,7 @@ function App() {
             remoteAudioRef.current.remove();
             remoteAudioRef.current = null;
         }
+        setAvatarLoading(false);
         setAvatarReady(false);
         appendLog("Avatar connection closed");
     }, [appendLog]);
@@ -440,15 +457,28 @@ function App() {
                     <button className="secondary" onClick={sendTextPrompt} disabled={!sessionId}>
                         Send Text Prompt
                     </button>
-                    <button onClick={avatarReady ? teardownAvatar : startAvatar} disabled={!sessionId}>
-                        {avatarReady ? "Stop Avatar" : "Start Avatar"}
+                    <button onClick={avatarReady ? teardownAvatar : startAvatar} disabled={!sessionId || avatarLoading}>
+                        {avatarLoading ? "Connecting Avatar..." : avatarReady ? "Stop Avatar" : "Start Avatar"}
                     </button>
                 </div>
             </section>
 
             <section className="section video-wrapper">
                 <h2>Avatar Stream</h2>
-                <video ref={videoRef} autoPlay playsInline muted={false} controls={false} />
+                <div className="video-container">
+                    <video ref={videoRef} autoPlay playsInline muted={false} controls={false} />
+                    {avatarLoading && (
+                        <div className="avatar-loading-overlay">
+                            <div className="loading-spinner"></div>
+                            <p>Loading Avatar...</p>
+                        </div>
+                    )}
+                    {!avatarReady && !avatarLoading && (
+                        <div className="avatar-placeholder">
+                            <p>Click "Start Avatar" to begin video stream</p>
+                        </div>
+                    )}
+                </div>
             </section>
 
             <section className="section">
