@@ -11,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
+import requests
 from pathlib import Path
+from dotenv import load_dotenv
 
 from .session_manager import SessionManager
 
@@ -41,10 +43,45 @@ class AudioCommitResponse(BaseModel):
 
 session_manager = SessionManager()
 
+# Load environment variables
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
+
+async def warmup_ecom_api():
+    """Warm up the ecom API by calling the /openapi endpoint"""
+    ecom_api_url = os.getenv("ecom_api_url")
+    if not ecom_api_url:
+        logger.warning("ecom_api_url not configured, skipping API warmup")
+        return
+    
+    warmup_url = f"{ecom_api_url.rstrip('/')}/openapi"
+    
+    try:
+        logger.info("Warming up ecom API at %s", warmup_url)
+        
+        # Run the blocking requests call in a thread to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            lambda: requests.get(warmup_url, timeout=30)
+        )
+        
+        if response.status_code == 200:
+            logger.info("Successfully warmed up ecom API - Status: %d", response.status_code)
+        else:
+            logger.warning("Ecom API warmup returned status %d", response.status_code)
+            
+    except requests.exceptions.RequestException as e:
+        logger.warning("Failed to warm up ecom API: %s", str(e))
+    except Exception as e:
+        logger.error("Unexpected error during ecom API warmup: %s", str(e))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # pylint: disable=unused-argument
     try:
+        # Startup: warm up the ecom API
+        await warmup_ecom_api()
         yield
     finally:
         # ensure all sessions are cleaned up
