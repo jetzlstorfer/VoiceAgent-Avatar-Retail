@@ -78,6 +78,7 @@ function App() {
     const [micActive, setMicActive] = useState(false);
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
+    const [avatarPaused, setAvatarPaused] = useState(false);
     const [assistantTranscript, setAssistantTranscript] = useState("");
     const [userTranscript, setUserTranscript] = useState("");
     const [entries, appendLog] = useLog();
@@ -442,7 +443,34 @@ function App() {
         }
         setAvatarLoading(false);
         setAvatarReady(false);
+        setAvatarPaused(false);
         appendLog("Avatar connection closed");
+    }, [appendLog]);
+
+    const pauseAvatar = useCallback(() => {
+        if (videoRef.current) {
+            videoRef.current.pause();
+        }
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.pause();
+        }
+        setAvatarPaused(true);
+        appendLog("Avatar paused");
+    }, [appendLog]);
+
+    const unpauseAvatar = useCallback(() => {
+        if (videoRef.current) {
+            videoRef.current.play().catch(() => {
+                /* ignore auto-play rejection */
+            });
+        }
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.play().catch(() => {
+                /* ignore auto-play rejection */
+            });
+        }
+        setAvatarPaused(false);
+        appendLog("Avatar resumed");
     }, [appendLog]);
 
     return (
@@ -457,8 +485,22 @@ function App() {
                     <button className="secondary" onClick={sendTextPrompt} disabled={!sessionId}>
                         Send Text Prompt
                     </button>
-                    <button onClick={avatarReady ? teardownAvatar : startAvatar} disabled={!sessionId || avatarLoading}>
-                        {avatarLoading ? "Connecting Avatar..." : avatarReady ? "Stop Avatar" : "Start Avatar"}
+                    <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
+                        {avatarLoading ? "Connecting Avatar..." : "Start Avatar"}
+                    </button>
+                    <button 
+                        onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
+                        disabled={!avatarReady || avatarLoading}
+                    >
+                        {avatarPaused ? "Resume Avatar" : "Pause Avatar"}
+                    </button>
+                    <button 
+                        onClick={() => {}} 
+                        disabled={true}
+                        className="danger"
+                        title="Not implemented yet"
+                    >
+                        Stop Avatar
                     </button>
                 </div>
             </section>
@@ -471,6 +513,12 @@ function App() {
                         <div className="avatar-loading-overlay">
                             <div className="loading-spinner"></div>
                             <p>Loading Avatar...</p>
+                        </div>
+                    )}
+                    {avatarPaused && avatarReady && (
+                        <div className="avatar-paused-overlay">
+                            <div className="pause-icon">⏸️</div>
+                            <p>Avatar Paused</p>
                         </div>
                     )}
                     {!avatarReady && !avatarLoading && (
