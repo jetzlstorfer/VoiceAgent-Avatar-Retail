@@ -7,7 +7,11 @@ from typing import AsyncGenerator, Dict
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import os
+from pathlib import Path
 
 from .session_manager import SessionManager
 
@@ -56,6 +60,16 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+# Mount static files (frontend build) when in production
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "voice-live-avatar-backend"}
 
 
 async def _ensure_session(session_id: str):
@@ -140,3 +154,19 @@ async def session_ws(websocket: WebSocket, session_id: str):
     finally:
         emitter_task.cancel()
         session.remove_event_queue(queue)
+
+
+# Serve React app for any unmatched routes (SPA fallback)
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve the React SPA for any non-API routes"""
+    static_dir = Path(__file__).parent.parent / "static"
+    
+    # If static files exist and this isn't an API call, serve index.html
+    if static_dir.exists() and not full_path.startswith(("sessions", "ws", "health", "static")):
+        index_file = static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+    
+    # Fallback 404 for missing routes
+    raise HTTPException(status_code=404, detail="Not found")

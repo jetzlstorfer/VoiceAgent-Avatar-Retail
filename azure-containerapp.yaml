@@ -1,0 +1,64 @@
+apiVersion: apps/v1beta2
+kind: ContainerApp
+metadata:
+  name: voice-live-avatar-app
+spec:
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 8000
+      allowInsecure: false
+      traffic:
+        - weight: 100
+          latestRevision: true
+    secrets:
+      - name: azure-openai-key
+        value: "" # Set via Azure CLI or Portal
+      - name: azure-search-key
+        value: "" # Set via Azure CLI or Portal
+  template:
+    containers:
+      - name: voice-live-avatar
+        image: <your-registry>.azurecr.io/voice-live-avatar:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: AZURE_OPENAI_ENDPOINT
+            value: "https://<your-openai-resource>.openai.azure.com/"
+          - name: AZURE_OPENAI_API_KEY
+            secretRef: azure-openai-key
+          - name: AZURE_OPENAI_DEPLOYMENT_NAME
+            value: "gpt-4o-realtime-preview"
+          - name: AZURE_SEARCH_ENDPOINT
+            value: "https://<your-search-service>.search.windows.net"
+          - name: AZURE_SEARCH_API_KEY
+            secretRef: azure-search-key
+          - name: AZURE_VOICE_AVATAR_ENABLED
+            value: "true"
+          - name: AZURE_VOICE_AVATAR_CHARACTER
+            value: "lisa"
+          - name: AZURE_VOICE_AVATAR_STYLE
+            value: "casual-sitting"
+        probes:
+          - type: Liveness
+            httpGet:
+              path: "/health"
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          - type: Readiness
+            httpGet:
+              path: "/health" 
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+    scale:
+      minReplicas: 1
+      maxReplicas: 10
+      rules:
+        - name: http-scaler
+          http:
+            metadata:
+              concurrentRequests: "10"

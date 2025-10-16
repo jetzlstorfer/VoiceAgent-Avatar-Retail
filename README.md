@@ -129,6 +129,119 @@ The avatar path relies on the Azure Voice Live realtime session plus a WebRTC ne
 - A `session.avatar.connect` timeout usually means the backend never saw `session.avatar.connecting`; check that the SDP payload is base64 JSON and that `AZURE_VOICE_AVATAR_ENABLED=true`.
 - If the video renders but audio is silent, confirm the `Avatar audio track received` log appears and the hidden `<audio>` element is attached in DevTools. Missing ICE servers or a suspended `AudioContext` are the most common causes.
 
+## Deployment
+
+This application supports both local development and production deployment to Azure Container Apps with zero workflow changes required.
+
+### Local Development (No Changes Required)
+
+The current local development workflow remains completely unchanged:
+
+**Backend** (Terminal 1):
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Frontend** (Terminal 2):
+```bash
+cd frontend
+npm run dev
+```
+
+**Access**: `http://localhost:5173`
+
+### How Local Development Works
+- **Frontend**: Vite dev server on `localhost:5173` with hot reloading
+- **Backend**: FastAPI on `localhost:8000` via Uvicorn ASGI server
+- **Communication**: Frontend uses proxy configuration in `vite.config.ts` to route API calls (`/sessions/*`, `/ws/*`) to the backend
+- **Technology Stack**: React + Vite → FastAPI + Uvicorn (not Flask!)
+
+### Azure Container Apps Deployment
+
+For production deployment, both frontend and backend are packaged into a single container that serves everything from FastAPI on port 8000.
+
+#### Architecture Changes for Production
+- **Single Origin**: FastAPI serves both API endpoints AND static React files
+- **No Proxy Needed**: Eliminates CORS issues and simplifies WebSocket connections
+- **Static File Serving**: React build output is served from `/static/` route
+- **SPA Fallback**: Catch-all route serves `index.html` for client-side routing
+
+#### Deployment Files
+The following files have been added for containerization (no impact on local dev):
+
+- `Dockerfile` - Multi-stage build (Node.js → Python)
+- `start.sh` - Container startup script  
+- `vite.config.prod.ts` - Production build configuration
+- `azure-containerapp.yaml` - Container App resource definition
+- `deploy.sh` - Automated deployment script
+- `.dockerignore` - Exclude development files from build
+
+#### Smart Conditional Logic
+The production features only activate in containerized environments:
+
+- **Static files**: Only mounted when `/static` directory exists (production builds)
+- **SPA fallback**: Only matches non-API routes (won't interfere with local proxy)
+- **Health checks**: `/health` endpoint for Container App monitoring
+- **Original config**: `vite.config.ts` unchanged for local development
+
+#### Deployment Steps
+
+1. **Build Production Frontend**:
+   ```bash
+   cd frontend
+   npm run build:prod
+   ```
+
+2. **Build and Push Container**:
+   ```bash
+   docker build -t yourregistry.azurecr.io/voice-live-avatar:latest .
+   docker push yourregistry.azurecr.io/voice-live-avatar:latest
+   ```
+
+3. **Deploy to Azure Container Apps**:
+   ```bash
+   az containerapp create \
+     --resource-group your-rg \
+     --environment your-env \
+     --name voice-live-avatar-app \
+     --image yourregistry.azurecr.io/voice-live-avatar:latest \
+     --target-port 8000 \
+     --env-vars AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
+   ```
+
+#### Environment Variables for Production
+Configure these secrets in Azure Container Apps:
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_SEARCH_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_SEARCH_ENDPOINT`
+- `AZURE_VOICE_AVATAR_ENABLED=true`
+- `AZURE_VOICE_AVATAR_CHARACTER=lisa`
+- `AZURE_VOICE_AVATAR_STYLE=casual-sitting`
+
+#### Production Benefits
+- **Performance**: Single container, no proxy overhead
+- **Scalability**: Container Apps auto-scaling based on HTTP requests
+- **Reliability**: Health checks ensure container restarts on failures
+- **Security**: Managed identity integration with Azure services
+- **Cost**: Pay-per-use scaling down to zero when idle
+
+### Development vs Production Comparison
+
+| Aspect | Local Development | Production (Container Apps) |
+|--------|-------------------|----------------------------|
+| **Frontend** | Vite dev server (`:5173`) | Static files via FastAPI |
+| **Backend** | Uvicorn (`:8000`) | Uvicorn in container (`:8000`) |
+| **Communication** | Proxy configuration | Same origin |
+| **Hot Reload** | ✅ Enabled | ❌ Static build |
+| **CORS** | Handled by proxy | ❌ Not needed |
+| **WebSocket** | Proxy passthrough | Direct connection |
+| **Static Assets** | Served by Vite | Served by FastAPI |
+| **Deployment** | Two separate processes | Single container |
+
+This design ensures you can develop locally with the full-featured development experience while deploying to a production-ready, scalable container environment without any workflow disruption.
+
 ## References
 
 - [Voice Live API reference](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-api-reference)
