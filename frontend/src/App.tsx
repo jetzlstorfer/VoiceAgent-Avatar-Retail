@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from 'react-markdown';
 
 type LogEntry = { id: string; text: string };
 
@@ -458,7 +459,13 @@ function App() {
                 </div>
                 <div>
                     <strong>Assistant:</strong>
-                    <p>{assistantTranscript || "(waiting for response)"}</p>
+                    <div className="assistant-response">
+                        {assistantTranscript ? (
+                            <ReactMarkdown>{assistantTranscript}</ReactMarkdown>
+                        ) : (
+                            <p>(waiting for response)</p>
+                        )}
+                    </div>
                 </div>
             </section>
 

@@ -80,3 +80,88 @@ video {
   margin-bottom: 0.65rem;
   white-space: pre-wrap;
 }
+
+/* Assistant response markdown styling */
+.assistant-response {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 8px;
+  padding: 1rem;
+  border-left: 4px solid #38bdf8;
+  margin-top: 0.5rem;
+}
+
+.assistant-response h1, 
+.assistant-response h2, 
+.assistant-response h3 {
+  color: #38bdf8;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.assistant-response h1 {
+  font-size: 1.5rem;
+}
+
+.assistant-response h2 {
+  font-size: 1.3rem;
+}
+
+.assistant-response h3 {
+  font-size: 1.1rem;
+}
+
+.assistant-response ul, 
+.assistant-response ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.assistant-response li {
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+
+.assistant-response strong {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.assistant-response p {
+  margin: 0.5rem 0;
+  line-height: 1.6;
+}
+
+.assistant-response code {
+  background: rgba(51, 65, 85, 0.8);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: "Cascadia Code", "SFMono-Regular", monospace;
+  color: #fbbf24;
+}
+
+.assistant-response pre {
+  background: rgba(51, 65, 85, 0.8);
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.assistant-response table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+
+.assistant-response th,
+.assistant-response td {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.assistant-response th {
+  background: rgba(51, 65, 85, 0.5);
+  font-weight: 600;
+  color: #38bdf8;
+}
