@@ -1,0 +1,15 @@
+# Ignore Node.js dependencies
+node_modules/
+
+# Environment configs
+.env
+*.env.*
+backend/.env
+backend/.env.*
+
+# Optional: Vite build output
+frontend/dist/
+
+# macOS and Windows metadata
+.DS_Store
+Thumbs.db
