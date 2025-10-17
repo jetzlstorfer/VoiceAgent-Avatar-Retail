@@ -16,6 +16,14 @@ This solution demonstrates the use case where:
 The Customer experience is powered using a `Live Avatar` and `Speech-to-Speech` experience through `Azure Voice Live API`. Through a single API interface that it provides, the entire experience can be implemented.
 The Application is a `Python FAST API` backend and a `TypeScript` browser client. The backend keeps the Azure Voice Live `realtime session` (including all tool calls) while the browser attaches to the avatar stream through `WebRTC`.
 
+## Demo of the Application in Action
+
+See this retail voice agent application in action! Click the image below to watch a live demonstration of the avatar-powered conversation experience:
+
+[![Retail Voice Agent Demo](https://img.youtube.com/vi/NWf2lzJx54U/maxresdefault.jpg)](https://youtu.be/NWf2lzJx54U "Retail Voice Agent with Avatar - Live Demo")
+
+*🎥 Click the image above to watch the demo on YouTube*
+
 ## Comprehensive Solution Architecture
 
 This application implements a **hybrid architecture** using both **WebSocket proxying** and **direct WebRTC connections** for optimal performance and centralized control.
@@ -210,6 +218,8 @@ GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
 4. **Response Generation**: GPT-4 Realtime Model (via Azure Voice Live API) incorporates results into conversational response
 
 Function call outputs are posted back to the realtime session so the model can continue the conversation seamlessly.
+
+
 
 ### Why This Hybrid Architecture?
 
