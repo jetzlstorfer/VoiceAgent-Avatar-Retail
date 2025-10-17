@@ -14,6 +14,14 @@ The Application is a Python FAST API backend and a TypeScript browser client. Th
 
 ## Comprehensive Solution Architecture
 
+This application implements a **hybrid architecture** using both **WebSocket proxying** and **direct WebRTC connections** for optimal performance and centralized control.
+
+### Key Components
+
+- **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming.
+- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions, handles function calls, and facilitates WebRTC SDP negotiation for avatar connections.
+- **Azure Voice Live API** – Microsoft's realtime AI service that acts as a gateway to GPT-4 Realtime Model, processes audio, generates responses, and provides avatar video streams via WebRTC.
+
 
 ```mermaid
 graph TB
@@ -130,9 +138,7 @@ graph TB
     class DataLayer,CosmosDB,SQLDatabase dataClass
 ```
 
-
-KEY COMMUNICATION FLOWS:
-══════════════════════════
+### KEY COMMUNICATION FLOWS:
 
 🎵 AUDIO FLOW:
 Browser → WebSocket → FastAPI → WebSocket → Azure Voice Live → GPT Realtime
@@ -143,10 +149,10 @@ Browser ↔ WebRTC Direct Connection ↔ Azure Voice Live (bypasses backend for 
 🔧 FUNCTION CALLS:
 GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
 
-🤖 INTELLIGENT AGENTS:
+🤖 Business APIs / RAG:
 - Shipment Logic App: Analyzes orders, validates, creates shipping, tracks status
-- Conversation Analysis: Reviews conversations, sentiment analysis, quality scoring
-```
+- Conversation Analysis Agent: Reviews conversations, sentiment analysis, quality scoring
+- QnA Search using Azure AI Search: Reasons over manuals and helps answer Customer queries
 
 ### Architecture Components Explained
 
@@ -169,54 +175,13 @@ GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
 
 ## Architecture Overview
 
-This application implements a **hybrid architecture** using both **WebSocket proxying** and **direct WebRTC connections** for optimal performance and centralized control.
-
-### Key Components
-
-- **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming.
-- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions, handles function calls, and facilitates WebRTC SDP negotiation for avatar connections.
-- **Azure Voice Live API** – Microsoft's realtime AI service that acts as a gateway to GPT-4 Realtime Model, processes audio, generates responses, and provides avatar video streams via WebRTC.
 
 ### Communication Architecture
 
 The application uses **three distinct communication flows**:
 
-#### 1. Audio & Control Flow (WebSocket Proxy)
-```
-┌─────────────┐    WebSocket     ┌─────────────┐    WebSocket     ┌─────────────────┐
-│             │◄────────────────►│             │◄────────────────►│                 │
-│  Frontend   │   Audio Chunks   │   FastAPI   │   Audio Chunks   │  Azure Voice    │
-│  (React)    │   Transcripts    │   Backend   │   Transcripts    │   Live API      │
-│             │   Commands       │   (Proxy)   │   Commands       │                 │
-└─────────────┘                  └─────────────┘                  └─────────────────┘
-```
 
-#### 2. Avatar Video Flow (Direct WebRTC)
-```
-┌─────────────┐                                                   ┌─────────────────┐
-│             │                                                   │                 │
-│  Frontend   │◄─────────────── WebRTC Video Stream ─────────────►│  Azure Voice    │
-│  (React)    │                 (Direct Connection)               │   Live API      │
-│             │                                                   │                 │
-└─────────────┘                                                   └─────────────────┘
-       ▲                                                                   ▲
-       │                                                                   │
-       │             ┌──────────────┐                                      │
-       └────────────►│   FastAPI    │──────────────────────────────────────┘
-         SDP Offer   │   Backend    │              SDP Answer
-         (HTTP POST) │ (SDP Broker) │            (HTTP Response)
-                     └──────────────┘
-```
-
-#### 3. Function Calls & Business Logic Flow
-```
-┌─────────────┐    WebSocket     ┌─────────────┐    HTTP/REST     ┌─────────────────┐
-│             │◄────────────────►│             │◄────────────────►│                 │
-│  Frontend   │   Function Call  │   FastAPI   │   Search Queries │  Azure AI       │
-│  (Display)  │   Results        │   Backend   │   E-com APIs     │  Search /       │
-│             │                  │ (Executor)  │   Logic Apps     │  Business APIs  │
-└─────────────┘                  └─────────────┘                  └─────────────────┘
-```
+![Flow Diagram](./images/flow-diagram.png)
 
 ### Detailed Flow Breakdown
 
