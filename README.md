@@ -1,13 +1,19 @@
 # Retail E-Com Voice Live Agent with Avatar
 
-This solution extends the original Chainlit + Python prototype by splitting the workload into a Python backend and a TypeScript browser client. The backend keeps the Azure Voice Live realtime session (including all tool calls) while the browser attaches to the avatar stream through WebRTC.
+This solution demonstrates the use case where:
+
+1) A Customer:
+- browses through the Catalog, Orders products
+- Provides a destination address and has a Shipment Order created for the purchase
+- Asks queries around Contoso Retail's policies and product support
+
+2) The Call conversation between the Customer and Voice Agent gets captured, and Analysis of the quality of the conversation is done using an Agent, like customer sentiment, rating the call, justifying the rating, and capturing the reasons for the call, the Product in question, etc.
+
+The Customer experience is powered using an Live Avatar and Speech-to-Speech experience through Azure Voice Live API. Through a single API interface that it provides, the entire experience can be implemented.
+The Application is a Python FAST API backend and a TypeScript browser client. The backend keeps the Azure Voice Live realtime session (including all tool calls) while the browser attaches to the avatar stream through WebRTC.
 
 ## Comprehensive Solution Architecture
 
-> **📋 How to View the Diagram:**
-> - **VS Code**: Open this README.md and use `Ctrl+Shift+V` (Windows) or `Cmd+Shift+V` (Mac) to open Markdown Preview
-> - **GitHub**: The Mermaid diagram will render automatically when viewing this file
-> - **Alternative**: Scroll down for ASCII version if Mermaid doesn't render
 
 ```mermaid
 graph TB
@@ -124,120 +130,6 @@ graph TB
     class DataLayer,CosmosDB,SQLDatabase dataClass
 ```
 
-### Alternative ASCII Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                           👤 USER'S COMPUTER/PHONE                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  🌐 Web Browser                                                                  │   │
-│  │  ├─ 📱 Frontend React App (TypeScript/JavaScript)                               │   │
-│  │  ├─ 🎤 Web Audio API (Microphone capture)                                       │   │
-│  │  ├─ 🔊 Web Audio API (Speaker output)                                           │   │
-│  │  └─ 🎥 WebRTC (Direct video connection)                                         │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                                    🌐 INTERNET
-                                (HTTPS/WSS/WebRTC)
-                                          │
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                        ☁️ AZURE CONTAINER APPS ENVIRONMENT                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │                       🐳 SINGLE CONTAINER APPLICATION                           │   │
-│  │  ┌─────────────────────────────┐  ┌─────────────────────────────────────────┐   │   │
-│  │  │     📱 FRONTEND SERVER      │  │          🐍 BACKEND SERVER              │   │   │
-│  │  │                             │  │                                         │   │   │
-│  │  │ ⚡ Vite Server              │  │ 🚀 FastAPI Application                  │   │   │
-│  │  │ - Node.js Runtime           │  │ - ASGI Server (uvicorn)                 │   │   │
-│  │  │ - TypeScript/JavaScript     │  │ - Async request handling                │   │   │
-│  │  │ - Hot module replacement    │  │ - WebSocket support                     │   │   │
-│  │  │ - Development proxy         │  │ - Python async/await                    │   │   │
-│  │  │                             │  │                                         │   │   │
-│  │  │ ⚛️ React Application        │◄─┤ 📋 Session Manager                     │   │   │
-│  │  │ - Audio processing          │  │ - WebSocket connections                 │   │   │
-│  │  │ - WebSocket client          │  │ - Session lifecycle                     │   │   │
-│  │  │ - WebRTC peer connection    │  │ - Audio proxy                           │   │   │
-│  │  │                             │  │                                         │   │   │
-│  │  └─────────────────────────────┘  │ 🛠️ Function Tools                      │   │   │
-│  │               │                    │ - Product search                        │   │   │
-│  │               │ Local API calls    │ - Order processing                      │   │   │
-│  │               │ WebSocket          │ - QnA retrieval                         │   │   │
-│  │               └────────────────────┴─────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                                    📡 WebSocket
-                                  (Audio + Control)
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                            🧠 AZURE OPENAI SERVICE                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │                    🤖 GPT-4 Realtime Model                                     │   │
-│  │  - Real-time audio processing    - Function calling                            │   │
-│  │  - Conversation management       - Response generation                         │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                                    Function Calls
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                         🎭 AZURE VOICE LIVE API                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │     👨‍💼 Avatar Service               🗣️ Text-to-Speech                        │   │
-│  │     - Video generation                - Neural voices                           │   │
-│  │     - WebRTC streaming               - Audio streaming                          │   │
-│  │     - Characters: lisa/james         - Real-time synthesis                     │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                        │                                    ▲
-                        │ 🎥 WebRTC Video Stream             │
-                        │ (DIRECT CONNECTION)                │ SDP Negotiation
-                        │ Low latency, H.264                 │ (via FastAPI)
-                        ▼                                    │
-               ┌─────────────────┐                          │
-               │  👤 USER BROWSER │──────────────────────────┘
-               │  Direct Video    │
-               └─────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                           🏢 BUSINESS SERVICES LAYER                                    │
-│                                                                                         │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌─────────────────────────┐ │
-│  │  🛍️ CONTOSO E-COMMERCE │  │    ⚡ AZURE LOGIC APPS  │  │   🔍 AZURE AI SEARCH   │ │
-│  │      (Container Apps)    │  │                         │  │                         │ │
-│  │                         │  │  📦 Shipment Agent:     │  │ - Vector search         │ │
-│  │ 📦 Product Search API   │  │  🤖 Intelligent Workflow │  │ - Semantic search       │ │
-│  │ - Catalog browsing      │  │  - Order validation     │  │ - QnA knowledge base    │ │
-│  │ - Inventory lookup      │  │  - Shipping labels      │  │ - Customer manuals      │ │
-│  │ - Price information     │  │  - Carrier integration  │  │                         │ │
-│  │                         │  │                         │  └─────────────────────────┘ │
-│  │ 🛒 Order Processing API │  │  💬 Conversation Agent: │                              │
-│  │ - Cart management       │  │  🤖 Analysis Workflow   │                              │
-│  │ - Order creation        │  │  - Sentiment analysis   │                              │
-│  │ - Payment processing    │  │  - Quality scoring      │                              │
-│  └─────────────────────────┘  │  - Performance metrics  │                              │
-│                               └─────────────────────────┘                              │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                                    Data Storage
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              💾 DATA STORAGE LAYER                                      │
-│                                                                                         │
-│  ┌─────────────────────────────────────┐  ┌─────────────────────────────────────────┐ │
-│  │        🌟 AZURE COSMOS DB           │  │         🗄️ AZURE SQL DATABASE         │ │
-│  │                                     │  │                                         │ │
-│  │ - Conversation history              │  │ - Order records                         │ │
-│  │ - User interactions                 │  │ - Shipment tracking                     │ │
-│  │ - Analytics data                    │  │ - Relational data                       │ │
-│  │ - JSON documents                    │  │ - ACID transactions                     │ │
-│  │ - Quality scores & analysis         │  │ - Normalized schemas                    │ │
-│  └─────────────────────────────────────┘  └─────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
 
 KEY COMMUNICATION FLOWS:
 ══════════════════════════
@@ -283,7 +175,7 @@ This application implements a **hybrid architecture** using both **WebSocket pro
 
 - **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming.
 - **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions, handles function calls, and facilitates WebRTC SDP negotiation for avatar connections.
-- **Azure Voice Live API** – Microsoft's realtime AI service that processes audio, generates responses, and provides avatar video streams via WebRTC.
+- **Azure Voice Live API** – Microsoft's realtime AI service that acts as a gateway to GPT-4 Realtime Model, processes audio, generates responses, and provides avatar video streams via WebRTC.
 
 ### Communication Architecture
 
@@ -333,7 +225,7 @@ The application uses **three distinct communication flows**:
 2. **Audio Processing**: Downsamples audio to 24kHz, converts to base64
 3. **WebSocket Transmission**: Sends audio chunks to FastAPI backend via WebSocket
 4. **Proxy Relay**: Backend forwards audio to Azure Voice Live API via separate WebSocket
-5. **Response Processing**: Azure sends back audio deltas, transcripts, and commands
+5. **Response Processing**: Azure Voice Live API processes responses from GPT-4 Realtime Model and sends back audio deltas, transcripts, and commands
 6. **Response Relay**: Backend forwards responses back to frontend via WebSocket
 7. **Audio Playback**: Frontend schedules audio playback using Web Audio API
 
@@ -350,13 +242,13 @@ The application uses **three distinct communication flows**:
 6. **ICE Server Configuration**: Backend provides TURN/STUN servers via WebSocket for NAT traversal
 
 #### Function Call Processing
-1. **AI Decision**: Azure Voice Live determines when to call functions based on conversation
-2. **Function Execution**: Backend receives function calls and executes them:
+1. **AI Decision**: GPT-4 Realtime Model (accessed via Azure Voice Live API) determines when to call functions based on conversation
+2. **Function Execution**: Backend receives function calls from Azure Voice Live API and executes them:
    - Azure AI Search for knowledge queries
    - E-commerce APIs for product searches and orders
    - Logic Apps for shipments and call logging
-3. **Result Return**: Backend sends function results back to Azure Voice Live
-4. **Response Generation**: Azure Voice Live incorporates results into conversational response
+3. **Result Return**: Backend sends function results back to Azure Voice Live API
+4. **Response Generation**: GPT-4 Realtime Model (via Azure Voice Live API) incorporates results into conversational response
 
 ### Why This Hybrid Architecture?
 
@@ -629,6 +521,129 @@ pc.onconnectionstatechange = () => {
 ```
 
 This technical implementation showcases how the hybrid architecture efficiently combines WebSocket proxying for control and audio, with direct WebRTC for high-performance video streaming.
+
+## Business Services Integration
+
+The architecture diagram shows several business services that work together to provide a complete retail e-commerce experience. **Note: The code for these business service components is not included in this repository**, but the details and implementation guidance are provided below.
+
+### 🛍️ Contoso E-Commerce API (Azure Container Apps)
+
+The Contoso retail API provides the core e-commerce functionality for product search and order processing.
+
+#### Product Search API
+- **Endpoint**: `/api/products/search`
+- **Functionality**: 
+  - Catalog browsing with filters (category, price range, brand)
+  - Inventory lookup with real-time availability
+  - Product details including images, descriptions, specifications
+  - Price information with promotions and discounts
+- **Integration**: Called by FastAPI tools when GPT-4 needs product information
+- **Sample Response**:
+```json
+{
+  "products": [
+    {
+      "id": "SHIRT_001",
+      "name": "Premium Cotton Shirt",
+      "category": "Clothing",
+      "price": 59.99,
+      "availability": "In Stock",
+      "image": "https://contoso.com/images/shirt_001.jpg"
+    }
+  ]
+}
+```
+
+#### Order Processing API
+- **Endpoint**: `/api/orders/create`
+- **Functionality**:
+  - Shopping cart management
+  - Order validation and creation
+  - Payment processing integration
+  - Order confirmation and tracking number generation
+- **Integration**: Triggered when customers complete purchases through the voice agent
+- **Sample Request**:
+```json
+{
+  "customer_id": "CUST_12345",
+  "items": [
+    {"product_id": "SHIRT_001", "quantity": 2, "price": 59.99}
+  ],
+  "payment_method": "credit_card",
+  "shipping_address": {...}
+}
+```
+
+### ⚡ Azure Logic Apps - Intelligent Agent Workflows
+
+The Logic Apps implement intelligent agent workflows that provide autonomous processing and analysis capabilities.
+
+#### 📦 Shipment Logic App Agent
+
+**Purpose**: Autonomous creation of a Shipment Order based on the Retail Ordeer ID and Destination Address.
+
+It takes the Order number from the previous step along with the destination address of the Customer and creates a Shipment Order in Azure SQL Database.
+
+![Shipment Logic App](./images/logicapp-shipment.png)
+
+#### 💬 Conversation Analysis Logic App Agent
+
+**Purpose**: Intelligent conversation analysis with objective quality assessment and insights generation.
+
+This Logic App is an Agent in itself and uses Azure OpenAI gpt-4o model to evaluate the call logs and provide an assessment of the call, and stores that in Azure CosmosDB
+
+![Call Log Analysis Agent](./images/call-log.png)
+
+Here is a Call log Analysis document stored in Azure CosmosDB
+
+```json
+{
+    "id": "c6cd9c84b5b647399ddaba036de3f7db",
+    "call_reason": "Cold pack broken, water inside bag",
+    "customer_satisfaction": "not satisfied",
+    "customer_sentiment": "negative",
+    "rating": 2,
+    "rating_justification": "The agent was very rude and unable to address my concerns",
+    "_rid": "0o0QAKScZqs-AAAAAAAAAA==",
+    "_self": "dbs/0o0QAA==/colls/0o0QAKScZqs=/docs/0o0QAKScZqs-AAAAAAAAAA==/",
+    "_etag": "\"0100fa68-0000-4700-0000-6894bd620000\"",
+    "_attachments": "attachments/",
+    "_ts": 1754578274
+}
+
+```
+
+### 🔍 Azure AI Search Integration
+
+**Purpose**: Provides intelligent search capabilities for customer support and product knowledge.
+
+
+### Implementation Requirements
+
+To implement these business services in your own environment, you would need:
+
+1. **Contoso E-Commerce API**:
+   - Deploy a .NET or Node.js API to Azure Container Apps
+   - Implement product catalog and order management endpoints
+   - Connect to your product database and payment processors
+
+2. **Azure Logic Apps**:
+   - Create Logic App workflows using the Azure portal or ARM templates
+   - Configure connectors for Azure SQL Database and Cosmos DB
+   - Set up HTTP triggers to receive data from FastAPI
+   - Implement the intelligent agent logic using built-in AI capabilities
+
+3. **Azure AI Search**:
+   - Create an AI Search service in Azure
+   - Upload your knowledge base documents (PDFs, Word docs, web content)
+   - Configure semantic search and vector search capabilities
+   - Set up automatic indexing pipelines
+
+4. **Data Storage**:
+   - **Azure SQL Database**: For structured data (orders, shipments, inventory)
+   - **Azure Cosmos DB**: For unstructured data (conversations, analysis results, user profiles)
+
+The FastAPI backend in this repository includes the integration code that calls these services, but the actual business service implementations would be deployed as separate Azure resources.
 
 ## Prerequisites
 
@@ -1248,4 +1263,3 @@ This design ensures you can develop locally with the full-featured development e
 
 - [Voice Live API reference](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-api-reference)
 - [Voice Live avatar handshake](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-api-reference#sessionavatarconnect)
-- [DefaultAzureCredential documentation](https://learn.microsoft.com/azure/developer/python/sdk/azure-identity-default-azure-credential)
