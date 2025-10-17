@@ -7,14 +7,20 @@ This solution demonstrates the use case where:
 - Provides a destination address and has a Shipment Order created for the purchase
 - Asks queries around Contoso Retail's policies and product support
 
-2) The Call conversation between the Customer and Voice Agent gets captured, and Analysis of the quality of the conversation is done using an Agent, like customer sentiment, rating the call, justifying the rating, and capturing the reasons for the call, the Product in question, etc.
+2) The Call conversation between the Customer and Voice Agent gets captured, and analysis of the quality of the conversation is done using an Agent, on the following aspects:
+- customer sentiment 
+- rating the call, justifying the rating
+- reasons for the call, 
+- the Product in question, etc.
 
-The Customer experience is powered using an Live Avatar and Speech-to-Speech experience through Azure Voice Live API. Through a single API interface that it provides, the entire experience can be implemented.
-The Application is a Python FAST API backend and a TypeScript browser client. The backend keeps the Azure Voice Live realtime session (including all tool calls) while the browser attaches to the avatar stream through WebRTC.
+The Customer experience is powered using a `Live Avatar` and `Speech-to-Speech` experience through `Azure Voice Live API`. Through a single API interface that it provides, the entire experience can be implemented.
+The Application is a `Python FAST API` backend and a `TypeScript` browser client. The backend keeps the Azure Voice Live `realtime session` (including all tool calls) while the browser attaches to the avatar stream through `WebRTC`.
 
 ## Comprehensive Solution Architecture
 
 This application implements a **hybrid architecture** using both **WebSocket proxying** and **direct WebRTC connections** for optimal performance and centralized control.
+
+Here is the high level view of the architecture used in the solution. ![architecture](./images/architecture.png)
 
 ### Key Components
 
@@ -138,27 +144,12 @@ graph TB
     class DataLayer,CosmosDB,SQLDatabase dataClass
 ```
 
-### KEY COMMUNICATION FLOWS:
-
-🎵 AUDIO FLOW:
-Browser → WebSocket → FastAPI → WebSocket → Azure Voice Live → GPT Realtime
-
-🎥 VIDEO FLOW:
-Browser ↔ WebRTC Direct Connection ↔ Azure Voice Live (bypasses backend for performance)
-
-🔧 FUNCTION CALLS:
-GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
-
-🤖 Business APIs / RAG:
-- Shipment Logic App: Analyzes orders, validates, creates shipping, tracks status
-- Conversation Analysis Agent: Reviews conversations, sentiment analysis, quality scoring
-- QnA Search using Azure AI Search: Reasons over manuals and helps answer Customer queries
 
 ### Architecture Components Explained
 
 #### 🐳 Container Application Architecture
-- **Vite Server**: Node.js-based development server that serves the React application. In development, it provides hot module replacement and proxies API calls to FastAPI. In production, the React app is built into static files served by FastAPI.
-- **FastAPI with ASGI**: Python web framework running on uvicorn ASGI server. ASGI (Asynchronous Server Gateway Interface) enables handling multiple concurrent connections efficiently, crucial for WebSocket connections and real-time audio processing.
+- **Vite Server**: Node.js-based development server that serves the React application. In development, it provides hot module replacement and proxies API calls to `FastAPI`. In production, the React app is built into static files served by FastAPI.
+- **FastAPI with ASGI**: Python web framework running on `uvicorn ASGI server`. ASGI (Asynchronous Server Gateway Interface) enables handling multiple concurrent connections efficiently, crucial for WebSocket connections and real-time audio processing.
 
 #### 🤖 AI & Voice Services Integration
 - **Azure Voice Live API**: Primary service that manages the connection to GPT-4 Realtime Model, provides avatar video generation, neural text-to-speech, and WebSocket gateway functionality
@@ -169,23 +160,21 @@ GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
 2. **Video Flow**: Browser ↔ WebRTC Direct Connection ↔ Azure Voice Live API (bypasses backend for performance)
 3. **Function Calls**: GPT-4 Realtime (via Voice Live) → FastAPI Tools → Business APIs → Response → GPT-4 Realtime (via Voice Live)
 
-#### 🤖 Intelligent Agent Workflows
+#### 🤖 Business process automation Workflows / RAG
 - **Shipment Logic App Agent**: Analyzes orders, validates data, creates shipping labels, and updates tracking information
-- **Conversation Analysis Agent**: Reviews complete conversations, performs sentiment analysis, generates quality scores with justification, and stores insights for continuous improvement
+- **Conversation Analysis Agent**: Azure Logic App Reviews complete conversations, performs sentiment analysis, generates quality scores with justification, and stores insights for continuous improvement
+- **Knowledge Retrieval**: Azure AI Search is used to reason over manuals and help respond to Customer queries on policies, products
 
-## Architecture Overview
 
-
-### Communication Architecture
+### KEY COMMUNICATION FLOWS:
 
 The application uses **three distinct communication flows**:
 
-
 ![Flow Diagram](./images/flow-diagram.png)
 
-### Detailed Flow Breakdown
+🎵 AUDIO FLOW:
+Browser → WebSocket → FastAPI → WebSocket → Azure Voice Live → GPT Realtime
 
-#### Audio Processing Flow
 1. **Microphone Capture**: Frontend captures audio using Web Audio API
 2. **Audio Processing**: Downsamples audio to 24kHz, converts to base64
 3. **WebSocket Transmission**: Sends audio chunks to FastAPI backend via WebSocket
@@ -194,7 +183,10 @@ The application uses **three distinct communication flows**:
 6. **Response Relay**: Backend forwards responses back to frontend via WebSocket
 7. **Audio Playback**: Frontend schedules audio playback using Web Audio API
 
-#### Avatar Video Flow
+🎥 VIDEO FLOW:
+Browser ↔ WebRTC Direct Connection ↔ Azure Voice Live (bypasses backend for performance)
+
+`Avatar Video Flow`
 1. **WebRTC Initialization**: Frontend creates RTCPeerConnection when "Start Avatar" is clicked
 2. **SDP Offer Creation**: Frontend generates WebRTC offer with audio/video transceivers
 3. **SDP Negotiation**: FastAPI backend acts as SDP broker:
@@ -206,7 +198,9 @@ The application uses **three distinct communication flows**:
 5. **Video Streaming**: Avatar video streams directly from Azure to browser (bypassing backend)
 6. **ICE Server Configuration**: Backend provides TURN/STUN servers via WebSocket for NAT traversal
 
-#### Function Call Processing
+🔧 FUNCTION CALLS:
+GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
+
 1. **AI Decision**: GPT-4 Realtime Model (accessed via Azure Voice Live API) determines when to call functions based on conversation
 2. **Function Execution**: Backend receives function calls from Azure Voice Live API and executes them:
    - Azure AI Search for knowledge queries
@@ -215,9 +209,11 @@ The application uses **three distinct communication flows**:
 3. **Result Return**: Backend sends function results back to Azure Voice Live API
 4. **Response Generation**: GPT-4 Realtime Model (via Azure Voice Live API) incorporates results into conversational response
 
+Function call outputs are posted back to the realtime session so the model can continue the conversation seamlessly.
+
 ### Why This Hybrid Architecture?
 
-This design provides the **best of both worlds**:
+This design provides the best of both worlds:
 
 #### WebSocket Proxy Benefits:
 - **Centralized Authentication**: Backend manages Azure credentials securely
@@ -237,313 +233,95 @@ This design provides the **best of both worlds**:
 - **Backend**: Holds all Azure credentials, validates all requests
 - **WebRTC**: Secured via ICE/DTLS, SDP negotiation controlled by backend
 
-## Technical Implementation Details
 
-### WebSocket Implementation
+### Browser Workflow
 
-#### Frontend WebSocket (`App.tsx`)
-The frontend establishes a WebSocket connection to the FastAPI backend:
+1. The app requests a new session from the backend and opens a WebSocket bridge.
+2. Clicking **Start Microphone** captures audio, downsamples to 24 kHz float frames, and pushes base64 chunks to the backend.
+3. Assistant audio deltas returned by the backend are scheduled in a browser `AudioContext` for playback.
+4. Clicking **Start Avatar** creates a `RTCPeerConnection`, sends the SDP offer to `/avatar-offer`, and sets the returned answer. The avatar video and audio render through the `<video>` element.
 
-```typescript
-// WebSocket connection to backend
-const ws = new WebSocket(`${BACKEND_WS_BASE}/ws/sessions/${id}`);
 
-// Sending audio chunks
-ws.send(JSON.stringify({
-    type: "audio_chunk",
-    data: base64AudioData,
-    encoding: "float32",
-}));
 
-// Receiving responses
-ws.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
-    switch (data.type) {
-        case "assistant_audio_delta":
-            schedulePlayback(data.delta); // Play audio via Web Audio API
-            break;
-        case "assistant_transcript_delta":
-            setAssistantTranscript(prev => prev + data.delta);
-            break;
-        case "event":
-            // Handle ICE servers and other session events
-            break;
-    }
-};
-```
 
-#### Backend WebSocket Proxy (`voice_live_client.py`)
-The backend maintains a separate WebSocket connection to Azure Voice Live:
-
-```python
-# Connection to Azure Voice Live API
-self.ws = await websockets.connect(ws_url, additional_headers=headers)
-
-# Forwarding audio from frontend to Azure
-await self._send("input_audio_buffer.append", {"audio": pcm_b64})
-
-# Broadcasting Azure responses to frontend
-async def _broadcast(self, event: Dict[str, Any]) -> None:
-    for queue in list(self._listeners):
-        queue.put_nowait(event)  # Send to all connected frontends
-```
-
-### WebRTC Implementation
-
-#### SDP Exchange Process
-The WebRTC connection for avatar video requires a careful SDP exchange:
-
-```typescript
-// Frontend: Create WebRTC offer
-const pc = new RTCPeerConnection({
-    bundlePolicy: "max-bundle",
-    iceServers: avatarIceServers, // Received via WebSocket from Azure
-});
-
-pc.addTransceiver("audio", { direction: "recvonly" });
-pc.addTransceiver("video", { direction: "recvonly" });
-
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
-
-// Send SDP offer to backend via HTTP
-const response = await fetch(`/sessions/${sessionId}/avatar-offer`, {
-    method: "POST",
-    body: JSON.stringify({ sdp: localSdp }),
-});
-
-const { sdp } = await response.json();
-await pc.setRemoteDescription({ type: "answer", sdp });
-```
-
-```python
-# Backend: SDP broker implementation
-async def connect_avatar(self, client_sdp: str) -> str:
-    # Encode SDP as required by Azure Voice Live
-    encoded_sdp = self._encode_client_sdp(client_sdp)
-    
-    # Send to Azure Voice Live
-    await self._send("session.avatar.connect", {
-        "client_sdp": encoded_sdp,
-        "rtc_configuration": {"bundle_policy": "max-bundle"},
-    })
-    
-    # Wait for Azure's SDP answer
-    server_sdp = await asyncio.wait_for(future, timeout=20)
-    return server_sdp
-
-@staticmethod
-def _encode_client_sdp(client_sdp: str) -> str:
-    payload = json.dumps({"type": "offer", "sdp": client_sdp})
-    return base64.b64encode(payload.encode("utf-8")).decode("ascii")
-```
-
-#### Video Stream Handling
-Once WebRTC is established, video streams directly to the browser:
-
-```typescript
-pc.ontrack = (event) => {
-    const [stream] = event.streams;
-    
-    if (event.track.kind === "video" && videoRef.current) {
-        videoRef.current.srcObject = stream; // Direct video rendering
-        videoRef.current.play();
-    }
-    
-    if (event.track.kind === "audio") {
-        // Create hidden audio element for WebRTC audio
-        const audioEl = document.createElement("audio");
-        audioEl.srcObject = stream;
-        audioEl.autoplay = true;
-        document.body.appendChild(audioEl);
-    }
-};
-```
-
-### Audio Processing Pipeline
-
-#### Microphone Capture and Processing
-```typescript
-// Capture microphone with Web Audio API
-const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-const audioContext = new AudioContext();
-const source = audioContext.createMediaStreamSource(mediaStream);
-const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-processor.onaudioprocess = (event) => {
-    const input = event.inputBuffer.getChannelData(0);
-    
-    // Downsample to 24kHz for Azure Voice Live
-    const downsampled = downsampleBuffer(input, audioContext.sampleRate, 24000);
-    
-    // Convert to base64 and send via WebSocket
-    const base64 = float32ToBase64(downsampled);
-    wsRef.current?.send(JSON.stringify({
-        type: "audio_chunk",
-        data: base64,
-        encoding: "float32",
-    }));
-};
-```
-
-#### Assistant Audio Playback
-```typescript
-// Schedule assistant audio for seamless playback
-const schedulePlayback = useCallback((deltaB64: string) => {
-    const audioCtx = ensurePlaybackContext();
-    const floatSamples = pcm16Base64ToFloat32(deltaB64);
-    
-    const buffer = audioCtx.createBuffer(1, floatSamples.length, 24000);
-    buffer.copyToChannel(floatSamples, 0);
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-    
-    // Schedule for seamless playback
-    const startAt = Math.max(playbackCursor, audioCtx.currentTime + 0.02);
-    source.start(startAt);
-    playbackCursor = startAt + buffer.duration;
-}, []);
-```
-
-### Session Management
-
-#### Backend Session Lifecycle
-```python
-class SessionManager:
-    def __init__(self):
-        self._sessions: Dict[str, VoiceLiveSession] = {}
-    
-    async def create_session(self) -> VoiceLiveSession:
-        session_id = str(uuid.uuid4())
-        session = VoiceLiveSession(session_id)
-        await session.connect()  # Connect to Azure Voice Live
-        self._sessions[session_id] = session
-        return session
-    
-    async def get_session(self, session_id: str) -> VoiceLiveSession:
-        if session_id not in self._sessions:
-            raise KeyError(f"Session {session_id} not found")
-        return self._sessions[session_id]
-```
-
-#### Function Call Integration
-```python
-# Function calls are handled entirely in the backend
-async def _handle_response_done(self, event: Dict[str, Any]) -> None:
-    output_items = event.get("response", {}).get("output", [])
-    first_item = output_items[0]
-    
-    if first_item.get("type") == "function_call":
-        function_name = first_item.get("name")
-        arguments = json.loads(first_item.get("arguments", "{}"))
-        
-        # Execute function (e.g., search products, create orders)
-        func = AVAILABLE_FUNCTIONS.get(function_name)
-        result = await loop.run_in_executor(None, lambda: func(**arguments))
-        
-        # Send result back to Azure Voice Live
-        await self._send("conversation.item.create", {
-            "item": {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": json.dumps(result),
-            }
-        })
-        
-        # Continue conversation
-        await self._send("response.create", {"response": self._response_config})
-```
-
-### Connection States and Error Handling
-
-#### WebSocket Resilience
-```python
-async def _ensure_connection(self) -> None:
-    if not self._ws_is_open():
-        await self.connect()
-    if not self._ws_is_open():
-        raise RuntimeError("Session websocket is not connected")
-```
-
-#### WebRTC Connection States
-```typescript
-// Monitor WebRTC connection state
-pc.onconnectionstatechange = () => {
-    switch (pc.connectionState) {
-        case "connected":
-            appendLog("Avatar connected");
-            setAvatarReady(true);
-            break;
-        case "disconnected":
-        case "failed":
-            appendLog("Avatar connection failed");
-            teardownAvatar();
-            break;
-    }
-};
-```
-
-This technical implementation showcases how the hybrid architecture efficiently combines WebSocket proxying for control and audio, with direct WebRTC for high-performance video streaming.
 
 ## Business Services Integration
 
-The architecture diagram shows several business services that work together to provide a complete retail e-commerce experience. **Note: The code for these business service components is not included in this repository**, but the details and implementation guidance are provided below.
+The architecture diagram shows several business services that work together to provide a complete retail e-commerce experience. **Note: The code for these business service components is not included in this repository**, but the details and implementation guidance are provided below. Function calling is used to execute these Business Services.
 
 ### 🛍️ Contoso E-Commerce API (Azure Container Apps)
 
 The Contoso retail API provides the core e-commerce functionality for product search and order processing.
 
 #### Product Search API
+
+**Available at**: [`./images/swagger.json`](./images/swagger.json)
+
 - **Endpoint**: `/api/products/search`
+- **Method**: `GET`
+- **Parameters**: 
+  - `category` (required): Product category filter
+  - `price` (required): Maximum price filter
 - **Functionality**: 
-  - Catalog browsing with filters (category, price range, brand)
-  - Inventory lookup with real-time availability
-  - Product details including images, descriptions, specifications
-  - Price information with promotions and discounts
-- **Integration**: Called by FastAPI tools when GPT-4 needs product information
+  - Search products by category and maximum price
+  - Returns filtered product catalog with detailed information
+  - Includes product ID, name, description, price, category, and image URL
+- **Integration**: Called by FastAPI tools when GPT-4 needs to search products
+- **Sample Response**:
+```json
+[
+  {
+    "id": 1,
+    "ProductName": "Premium Cotton Shirt",
+    "Category": "Clothing",
+    "Price": 59.99,
+    "ProductDescription": "High-quality cotton shirt perfect for casual and business wear",
+    "imageurl": "https://contoso.com/images/shirt_001.jpg"
+  },
+  {
+    "id": 2,
+    "ProductName": "Denim Jeans",
+    "Category": "Clothing", 
+    "Price": 89.99,
+    "ProductDescription": "Classic fit denim jeans made from premium fabric",
+    "imageurl": "https://contoso.com/images/jeans_002.jpg"
+  }
+]
+```
+
+**Endpoint**: `/api/products/category/{category}`
+- **Method**: `GET`
+- **Path Parameter**: `category` - Product category to filter by
+- **Functionality**: Returns all products in a specific category
+
+#### Order Processing API
+- **Endpoint**: `/api/orders/`
+- **Method**: `GET`
+- **Parameters**:
+  - `id` (required): Product ID to order
+  - `quantity` (required): Quantity to order
+- **Functionality**:
+  - Creates an order for a specific product and quantity
+  - Calculates total order amount automatically
+  - Returns complete order information with tracking details
+- **Integration**: Triggered when customers complete purchases through the voice agent
 - **Sample Response**:
 ```json
 {
-  "products": [
-    {
-      "id": "SHIRT_001",
-      "name": "Premium Cotton Shirt",
-      "category": "Clothing",
-      "price": 59.99,
-      "availability": "In Stock",
-      "image": "https://contoso.com/images/shirt_001.jpg"
-    }
-  ]
+  "OrderId": "ORD_789123",
+  "ProductId": 1,
+  "Name": "Premium Cotton Shirt",
+  "Quantity": 2,
+  "Price": 59.99,
+  "Total": 119.98
 }
 ```
 
-#### Order Processing API
-- **Endpoint**: `/api/orders/create`
-- **Functionality**:
-  - Shopping cart management
-  - Order validation and creation
-  - Payment processing integration
-  - Order confirmation and tracking number generation
-- **Integration**: Triggered when customers complete purchases through the voice agent
-- **Sample Request**:
-```json
-{
-  "customer_id": "CUST_12345",
-  "items": [
-    {"product_id": "SHIRT_001", "quantity": 2, "price": 59.99}
-  ],
-  "payment_method": "credit_card",
-  "shipping_address": {...}
-}
-```
-
-### ⚡ Azure Logic Apps - Intelligent Agent Workflows
+#### ⚡ Azure Logic Apps - Intelligent Agent Workflows
 
 The Logic Apps implement intelligent agent workflows that provide autonomous processing and analysis capabilities.
 
-#### 📦 Shipment Logic App Agent
+##### 📦 Shipment Logic App Agent
 
 **Purpose**: Autonomous creation of a Shipment Order based on the Retail Ordeer ID and Destination Address.
 
@@ -551,7 +329,7 @@ It takes the Order number from the previous step along with the destination addr
 
 ![Shipment Logic App](./images/logicapp-shipment.png)
 
-#### 💬 Conversation Analysis Logic App Agent
+##### 💬 Conversation Analysis Logic App Agent
 
 **Purpose**: Intelligent conversation analysis with objective quality assessment and insights generation.
 
@@ -578,37 +356,10 @@ Here is a Call log Analysis document stored in Azure CosmosDB
 
 ```
 
-### 🔍 Azure AI Search Integration
+#### 🔍 Azure AI Search Integration
 
 **Purpose**: Provides intelligent search capabilities for customer support and product knowledge.
 
-
-### Implementation Requirements
-
-To implement these business services in your own environment, you would need:
-
-1. **Contoso E-Commerce API**:
-   - Deploy a .NET or Node.js API to Azure Container Apps
-   - Implement product catalog and order management endpoints
-   - Connect to your product database and payment processors
-
-2. **Azure Logic Apps**:
-   - Create Logic App workflows using the Azure portal or ARM templates
-   - Configure connectors for Azure SQL Database and Cosmos DB
-   - Set up HTTP triggers to receive data from FastAPI
-   - Implement the intelligent agent logic using built-in AI capabilities
-
-3. **Azure AI Search**:
-   - Create an AI Search service in Azure
-   - Upload your knowledge base documents (PDFs, Word docs, web content)
-   - Configure semantic search and vector search capabilities
-   - Set up automatic indexing pipelines
-
-4. **Data Storage**:
-   - **Azure SQL Database**: For structured data (orders, shipments, inventory)
-   - **Azure Cosmos DB**: For unstructured data (conversations, analysis results, user profiles)
-
-The FastAPI backend in this repository includes the integration code that calls these services, but the actual business service implementations would be deployed as separate Azure resources.
 
 ## Prerequisites
 
@@ -621,7 +372,7 @@ The FastAPI backend in this repository includes the integration code that calls 
   - Contoso retail sample APIs (or your equivalent business APIs)
 - Authentication via either `DefaultAzureCredential` (Managed Identity, Visual Studio Code sign-in, or Azure CLI login) **or** an Azure OpenAI API key via `AZURE_OPENAI_API_KEY`.
 
-## Configuration
+### Configuration
 
 Copy `.env.sample` to `.env` and fill in the required values:
 
@@ -645,8 +396,9 @@ Key settings:
 - `ecom_api_url` – Contoso sample API host.
 - Optional `VITE_BACKEND_BASE` – Override when serving the frontend behind a different hostname.
 
-## Running the Backend
+### Running the Application
 
+#### Backend
 ```powershell
 cd backend
 python -m venv .venv
@@ -656,15 +408,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The backend exposes:
-
 - `POST /sessions` – Create a Voice Live session.
 - `POST /sessions/{id}/avatar-offer` – Exchange WebRTC SDP for avatar video.
 - `POST /sessions/{id}/text` – Send a text turn to the assistant.
 - `POST /sessions/{id}/commit-audio` – Force audio commit (mostly for manual control).
 - `WS /ws/sessions/{id}` – Bi-directional channel for audio streaming and realtime events.
 
-## Running the Frontend
-
+#### Frontend
 ```powershell
 cd frontend
 npm install
@@ -673,36 +423,14 @@ npm run dev
 
 The Vite dev server proxies API calls to `http://localhost:8000` (configure `vite.config.ts` if you deploy elsewhere).
 
-### Browser Workflow
 
-1. The app requests a new session from the backend and opens a WebSocket bridge.
-2. Clicking **Start Microphone** captures audio, downsamples to 24 kHz float frames, and pushes base64 chunks to the backend.
-3. Assistant audio deltas returned by the backend are scheduled in a browser `AudioContext` for playback.
-4. Clicking **Start Avatar** creates a `RTCPeerConnection`, sends the SDP offer to `/avatar-offer`, and sets the returned answer. The avatar video and audio render through the `<video>` element.
 
-## Tool Calling + Business Integrations
 
-The backend reuses the original tools logic:
-
-- `perform_search_based_qna` via Azure AI Search.
-- Shipment and call log Logic App integrations.
-- E-commerce catalog/order lookups via REST APIs.
-
-Function call outputs are posted back to the realtime session so the model can continue the conversation seamlessly.
-
-## Production Hardening Checklist
-
-- Frontend worker for audio processing (AudioWorklet) to reduce latency.
-- Persist conversation state for call log analysis payloads.
-- Add authentication between browser ↔ backend (Azure AD App Service auth or Entra ID).
-- Use a TURN server for the avatar stream when operating across restrictive networks.
-- Instrument backend with Application Insights for latency + error tracking.
-
-## Avatar Functionality Deep Dive
+## Advanced Avatar Implementation
 
 The avatar functionality represents the most complex part of this application, involving a sophisticated handshake between WebSocket control messages and WebRTC media streaming.
 
-### Avatar Architecture Flow
+### Avatar Communication Flow
 
 ```
 Frontend                 FastAPI Backend           Azure Voice Live API
@@ -746,7 +474,7 @@ Frontend                 FastAPI Backend           Azure Voice Live API
    │    (Direct Connection)   │                          │
    │                          │                          │
    │ 15. Video/Audio Stream   │                          │
-   │◄─────────────────────────────────────────────────────│
+   │◄────────────────────────────────────────────────────│
    │    (Bypasses Backend)    │                          │
 ```
 
@@ -795,7 +523,7 @@ self._session_config = {
 ```
 
 #### SDP Encoding and Decoding
-Azure Voice Live requires specific SDP formatting:
+Azure Voice Live requires specific SDP (Session Description Protocol) formatting for WebRTC negotiation:
 
 ```python
 @staticmethod
@@ -1076,34 +804,46 @@ This script performs the same SDP exchange as the production client and helps id
 
 The avatar path relies on the Azure Voice Live realtime session plus a WebRTC negotiation with the browser. The following steps capture the exact code changes that enabled a reliable avatar stream.
 
-### Backend (`backend/app/voice_live_client.py`)
+### Implementation Summary
 
+#### Backend (`backend/app/voice_live_client.py`)
 - **Session configuration** – `VoiceLiveSession._session_config` enables `"avatar"` and `"animation"` modalities and injects `AZURE_VOICE_AVATAR_*` settings produced from `_build_avatar_config()`.
 - **Session update** – On connect, the backend immediately sends `session.update` with the avatar block so the service returns ICE server hints in subsequent `session.updated` events.
 - **SDP encoding** – `connect_avatar` wraps the browser SDP as `{"type": "offer", "sdp": ...}` and base64-encodes it. This matches the Voice Live requirement (the API rejects plain-text SDP).
 - **session.avatar.connecting** – When the service responds the backend decodes the `server_sdp` (base64 JSON payload) and resolves a future so `/avatar-offer` can reply with a clean SDP answer.
 - **Event fan-out** – Every raw event from the Azure websocket is broadcast to browser listeners. This is how the frontend receives `session.updated` (for ICE servers) and `session.avatar.connecting` (for UI state).
 
-### Frontend (`frontend/src/App.tsx`)
-
+#### Frontend (`frontend/src/App.tsx`)
 - **Capture ICE servers** – The websocket handler watches for `event.type === "session.updated"`, normalises any `ice_servers` blocks, and stores them in React state.
 - **WebRTC offer** – `startAvatar()` builds an `RTCPeerConnection` with `bundlePolicy: "max-bundle"`, adds `recvonly` audio/video transceivers, and uses the cached ICE server list when available.
 - **SDP exchange** – The local offer is posted to `/sessions/{id}/avatar-offer`; the decoded SDP answer returned by the backend is applied as the remote description.
 - **Track handling** – `pc.ontrack` splits audio vs. video. Video streams bind directly to the `<video>` element, while audio streams attach to a hidden `<audio>` element that auto-plays to avoid browser autoplay restrictions.
 - **Audio context unlock** – Starting the microphone resumes both the capture `AudioContext` and the playback `AudioContext`, ensuring mixed PCM deltas and WebRTC audio play through the same output device.
 
-### Session Events to Expect
+### Expected Session Events
 
-1. `session.updated` – Confirms the avatar modality is active and carries TURN/STUN server configuration. The frontend must harvest these values before calling `startAvatar()`.
-2. `session.avatar.connecting` – Indicates the realtime service accepted the SDP; backend responds with a decoded answer, which the frontend applies immediately.
-3. `response.audio.delta` / `response.audio.done` – Continue to deliver PCM deltas even when the avatar is active. The frontend schedules these in an `AudioContext` so the audio output stays smooth while the WebRTC stream spins up.
-4. `error` – Any negotiation failure is surfaced to the browser log. Typical causes include unknown avatar characters, missing ICE configuration, or malformed SDP payloads.
+1. **`session.updated`** – Confirms avatar modality is active and provides ICE servers for WebRTC connection
+2. **`session.avatar.connecting`** – Avatar WebRTC handshake in progress, returns SDP answer
+3. **`response.audio.delta`** – Assistant audio continues streaming even with avatar active
+4. **WebRTC `ontrack`** – Video and audio tracks received from avatar stream
+5. **`error`** – Any negotiation or streaming failures with detailed error information
 
-### Troubleshooting Tips
+### Troubleshooting Avatar Issues
 
-- Use the helper script `backend/test_avatar_characters.py` to validate character/style combinations. It performs the same base64 SDP exchange as the production client.
-- A `session.avatar.connect` timeout usually means the backend never saw `session.avatar.connecting`; check that the SDP payload is base64 JSON and that `AZURE_VOICE_AVATAR_ENABLED=true`.
-- If the video renders but audio is silent, confirm the `Avatar audio track received` log appears and the hidden `<audio>` element is attached in DevTools. Missing ICE servers or a suspended `AudioContext` are the most common causes.
+#### Validation Tools
+Use the provided test script to validate avatar configuration:
+```bash
+cd backend
+python test_avatar_characters.py
+```
+
+#### Common Issues and Solutions
+- **`avatar_verification_failed`**: Character doesn't exist in your Speech resource/region
+- **SDP timeout**: Check that `AZURE_VOICE_AVATAR_ENABLED=true` and SDP payload is base64 JSON
+- **Silent video**: Confirm ICE servers are received and AudioContext is not suspended
+- **Connection failures**: Verify TURN/STUN servers for NAT traversal
+
+The avatar implementation relies on the Azure Voice Live realtime session plus WebRTC negotiation with the browser for direct video streaming while maintaining centralized control through the backend.
 
 ## Deployment
 
@@ -1223,6 +963,20 @@ Configure these secrets in Azure Container Apps:
 | **Deployment** | Two separate processes | Single container |
 
 This design ensures you can develop locally with the full-featured development experience while deploying to a production-ready, scalable container environment without any workflow disruption.
+
+### Production Hardening Checklist
+
+- **Audio Performance**: Implement AudioWorklet for audio processing to reduce latency
+- **State Persistence**: Persist conversation state for call log analysis payloads
+- **Authentication**: Add Azure AD App Service auth or Entra ID between browser ↔ backend
+- **Network Resilience**: Configure TURN servers for avatar stream across restrictive networks
+- **Monitoring**: Instrument backend with Application Insights for latency + error tracking
+
+- Frontend worker for audio processing (AudioWorklet) to reduce latency.
+- Persist conversation state for call log analysis payloads.
+- Add authentication between browser ↔ backend (Azure AD App Service auth or Entra ID).
+- Use a TURN server for the avatar stream when operating across restrictive networks.
+- Instrument backend with Application Insights for latency + error tracking.
 
 ## References
 
