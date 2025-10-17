@@ -5,7 +5,7 @@ export default defineConfig(() => ({
   plugins: [react()],
   base: "/static/",  // Assets will be served from /static/ path
   build: {
-    outDir: "../static",  // Build output goes to backend/static directory
+    outDir: "dist",  // Build output goes to frontend/dist directory (will be copied to backend/static)
     emptyOutDir: true
   },
   server: {

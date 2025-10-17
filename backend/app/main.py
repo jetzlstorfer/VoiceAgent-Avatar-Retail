@@ -203,6 +203,9 @@ async def serve_spa(full_path: str):
     if static_dir.exists() and not full_path.startswith(("sessions", "ws", "health", "static")):
         index_file = static_dir / "index.html"
         if index_file.exists():
+            # Warm up the ecom API when serving the main page to prevent cold start delays
+            if full_path == "" or full_path == "index.html":
+                asyncio.create_task(warmup_ecom_api())
             return FileResponse(index_file)
     
     # Fallback 404 for missing routes

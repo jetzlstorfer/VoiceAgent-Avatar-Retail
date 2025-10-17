@@ -64,6 +64,18 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.refresh-button {
+  background-color: #22c55e;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+button.refresh-button:hover:not(:disabled) {
+  background-color: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
+}
+
 .video-wrapper {
   display: grid;
   gap: 1rem;

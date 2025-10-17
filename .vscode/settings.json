@@ -1,0 +1,14 @@
+{
+    "containerApps.deploymentConfigurations": [
+        {
+            "label": "retail-avatar-voice-live-agent",
+            "type": "AcrDockerBuildRequest",
+            "dockerfilePath": "Dockerfile",
+            "srcPath": ".",
+            "envPath": "backend\\.env",
+            "resourceGroup": "retail-avatar-voice",
+            "containerApp": "retail-avatar-voice-live-agent",
+            "containerRegistry": "corpcommsasst31442e"
+        }
+    ]
+}

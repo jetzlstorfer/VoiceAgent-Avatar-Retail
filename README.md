@@ -187,17 +187,23 @@ The production features only activate in containerized environments:
 
 #### Deployment Steps
 
-1. **Build Production Frontend**:
-   ```bash
-   cd frontend
-   npm run build:prod
-   ```
-
-2. **Build and Push Container**:
+1. **Build and Push Container** (Automated Build):
    ```bash
    docker build -t yourregistry.azurecr.io/voice-live-avatar:latest .
    docker push yourregistry.azurecr.io/voice-live-avatar:latest
    ```
+   
+   > **How the Dockerfile Works**: The multi-stage build automatically:
+   > 1. Builds the frontend using `npm run build:prod` in a Node.js container
+   > 2. Copies the built frontend files to `backend/static/` in the Python container  
+   > 3. Packages everything into a single production container
+   >
+   > **Manual Copy (Only for Local Testing)**: If you want to test the production build locally without Docker:
+   > ```bash
+   > cd frontend && npm run build:prod
+   > Copy-Item -Path "frontend\dist\*" -Destination "backend\static\" -Recurse -Force
+   > cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
+   > ```
 
 3. **Deploy to Azure Container Apps**:
    ```bash

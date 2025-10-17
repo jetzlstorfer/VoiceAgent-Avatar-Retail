@@ -6,7 +6,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN npm run build:prod
 
 # Python runtime stage
 FROM python:3.11-slim
@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ ./
 
-# Copy built frontend static files
+# Copy built frontend static files from Stage 1 to backend/static directory
+# This automatically handles the frontend-to-backend file copying step
 COPY --from=frontend-build /app/frontend/dist ./static
 
 # Create startup script
