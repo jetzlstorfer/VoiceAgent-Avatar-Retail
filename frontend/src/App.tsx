@@ -81,6 +81,7 @@ function App() {
 
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [micActive, setMicActive] = useState(false);
+    const [avatarEnabled, setAvatarEnabled] = useState(false);
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
@@ -238,20 +239,25 @@ function App() {
         [appendLog, schedulePlayback, teardownMic]
     );
 
-    const createSession = useCallback(async () => {
-        const response = await fetch(`${BACKEND_HTTP_BASE}/sessions`, { method: "POST" });
+    const createSession = useCallback(async (withAvatar = false) => {
+        const response = await fetch(`${BACKEND_HTTP_BASE}/sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ avatar_enabled: withAvatar }),
+        });
         if (!response.ok) {
             throw new Error(`Failed to create session: ${response.status}`);
         }
         const { session_id } = await response.json();
         setSessionId(session_id);
-        appendLog(`Session created: ${session_id}`);
+        setAvatarEnabled(withAvatar);
+        appendLog(`Session created (${withAvatar ? "avatar" : "audio-only"}): ${session_id}`);
         connectWebSocket(session_id);
         return session_id;
     }, [appendLog, connectWebSocket]);
 
     useEffect(() => {
-        createSession().catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
+        createSession(false).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
     }, [appendLog, createSession]);
 
     const startMic = useCallback(async () => {
@@ -309,6 +315,30 @@ function App() {
         teardownMic();
         appendLog("Microphone streaming stopped");
     }, [appendLog, teardownMic]);
+
+    const playBeep = useCallback(() => {
+        try {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800; // Hz
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+            
+            appendLog("✓ Audio beep played - browser audio works!");
+        } catch (error) {
+            appendLog("✗ Audio beep failed: " + String(error));
+        }
+    }, [appendLog]);
 
     const sendTextPrompt = useCallback(async () => {
         if (!sessionId) {
@@ -452,6 +482,25 @@ function App() {
         appendLog("Avatar connection closed");
     }, [appendLog]);
 
+    const toggleAvatarMode = useCallback(async () => {
+        const newMode = !avatarEnabled;
+        // Tear down existing connections
+        teardownMic();
+        if (pcRef.current) {
+            teardownAvatar();
+        }
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        // Create new session with the new mode
+        try {
+            await createSession(newMode);
+        } catch (err) {
+            appendLog(`Error switching mode: ${String(err)}`);
+        }
+    }, [avatarEnabled, teardownMic, teardownAvatar, createSession, appendLog]);
+
     const pauseAvatar = useCallback(() => {
         if (videoRef.current) {
             videoRef.current.pause();
@@ -480,8 +529,8 @@ function App() {
 
     return (
         <main>
-            <h1>Contoso Retail - Azure Voice Live Avatar Agent</h1>
-            <p>Stream audio to Azure Voice Live, receive tool-calling responses, and render avatar video.</p>
+            <h1>Contoso Retail - Azure Voice Live Agent</h1>
+            <p>Stream audio to Azure Voice Live and receive tool-calling responses{avatarEnabled ? " with avatar video" : " (audio-only mode)"}.</p>
 
             <section className="section">
                 <h2>Controls</h2>
@@ -497,49 +546,65 @@ function App() {
                     <button className="secondary" onClick={sendTextPrompt} disabled={!sessionId}>
                         Send Text Prompt
                     </button>
-                    <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
-                        {avatarLoading ? "Connecting Avatar..." : "Start Avatar"}
+                    <button className="secondary" onClick={playBeep} title="Test if browser audio is working">
+                        🔊 Test Audio
                     </button>
-                    <button 
-                        onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
-                        disabled={!avatarReady || avatarLoading}
+                    <button
+                        className="secondary"
+                        onClick={toggleAvatarMode}
+                        title={avatarEnabled ? "Switch to audio-only mode" : "Switch to avatar mode (requires deployed avatar)"}
                     >
-                        {avatarPaused ? "Resume Avatar" : "Pause Avatar"}
+                        {avatarEnabled ? "🎭 Disable Avatar" : "🎭 Enable Avatar"}
                     </button>
-                    <button 
-                        onClick={() => {}} 
-                        disabled={true}
-                        className="danger"
-                        title="Not implemented yet"
-                    >
-                        Stop Avatar
-                    </button>
+                    {avatarEnabled && (
+                        <>
+                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
+                                {avatarLoading ? "Connecting Avatar..." : "Start Avatar"}
+                            </button>
+                            <button 
+                                onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
+                                disabled={!avatarReady || avatarLoading}
+                            >
+                                {avatarPaused ? "Resume Avatar" : "Pause Avatar"}
+                            </button>
+                            <button 
+                                onClick={() => {}} 
+                                disabled={true}
+                                className="danger"
+                                title="Not implemented yet"
+                            >
+                                Stop Avatar
+                            </button>
+                        </>
+                    )}
                 </div>
             </section>
 
-            <section className="section video-wrapper">
-                <h2>Avatar Stream</h2>
-                <div className="video-container">
-                    <video ref={videoRef} autoPlay playsInline muted={false} controls={false} />
-                    {avatarLoading && (
-                        <div className="avatar-loading-overlay">
-                            <div className="loading-spinner"></div>
-                            <p>Loading Avatar...</p>
-                        </div>
-                    )}
-                    {avatarPaused && avatarReady && (
-                        <div className="avatar-paused-overlay">
-                            <div className="pause-icon">⏸️</div>
-                            <p>Avatar Paused</p>
-                        </div>
-                    )}
-                    {!avatarReady && !avatarLoading && (
-                        <div className="avatar-placeholder">
-                            <p>Click "Start Avatar" to begin video stream</p>
-                        </div>
-                    )}
-                </div>
-            </section>
+            {avatarEnabled && (
+                <section className="section video-wrapper">
+                    <h2>Avatar Stream</h2>
+                    <div className="video-container">
+                        <video ref={videoRef} autoPlay playsInline muted={false} controls={false} />
+                        {avatarLoading && (
+                            <div className="avatar-loading-overlay">
+                                <div className="loading-spinner"></div>
+                                <p>Loading Avatar...</p>
+                            </div>
+                        )}
+                        {avatarPaused && avatarReady && (
+                            <div className="avatar-paused-overlay">
+                                <div className="pause-icon">⏸️</div>
+                                <p>Avatar Paused</p>
+                            </div>
+                        )}
+                        {!avatarReady && !avatarLoading && (
+                            <div className="avatar-placeholder">
+                                <p>Click "Start Avatar" to begin video stream</p>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            )}
 
             <section className="section">
                 <h2>Transcripts</h2>

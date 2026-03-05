@@ -26,8 +26,11 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Ensure .env from backend root is loaded when module is imported
-load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+# Ensure .env from repo root and backend root are loaded when module is imported
+repo_env = Path(__file__).resolve().parents[2] / ".env"
+backend_env = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(repo_env, override=False)
+load_dotenv(backend_env, override=False)
 
 SYSTEM_INSTRUCTIONS = """
 You are an AI Agent tasked with responding to questions from the customers of Contoso retail fashions regarding their shopping requirements. 
@@ -90,15 +93,16 @@ You have access to the following tools and knowledge. Use these to get context t
 
 Important confirmation requirements:
 **Empathize with the customer when you respond**
-**Remember that your persona is that of a woman. When you speak to the customer in Hindi, mind your gender when you respond**
+**Remember that your persona is that of a woman.**
 """
 
 
 class VoiceLiveSession:
     """Manage a single Voice Live realtime session and broadcast events to subscribers."""
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, avatar_enabled: bool = False):
         self.session_id = session_id
+        self.avatar_enabled = avatar_enabled
         self.ws: Optional[WebSocketClientProtocol] = None
         self._listeners: Set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
@@ -108,6 +112,7 @@ class VoiceLiveSession:
 
         endpoint = os.getenv("AZURE_VOICE_LIVE_ENDPOINT")
         model = os.getenv("VOICE_LIVE_MODEL")
+        avatar_character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
         if not endpoint or not model:
             raise RuntimeError("AZURE_VOICE_LIVE_ENDPOINT and VOICE_LIVE_MODEL must be set")
         self._endpoint = endpoint
@@ -115,9 +120,19 @@ class VoiceLiveSession:
         self._api_version = os.getenv("AZURE_VOICE_LIVE_API_VERSION", "2025-05-01-preview")
         self._api_key = os.getenv("AZURE_OPENAI_API_KEY")
         self._use_api_key = bool(self._api_key)
+        
+        logger.info(f"[{session_id}] Voice Live config: endpoint={endpoint}, model={model}, avatar_enabled={avatar_enabled}, avatar_character={avatar_character}, api_version={self._api_version}")
+
+        # In audio-only mode, use only text+audio modalities so the API
+        # sends response audio as WebSocket delta events instead of routing
+        # it through the WebRTC avatar channel.
+        if avatar_enabled:
+            modalities = ["text", "audio", "avatar", "animation"]
+        else:
+            modalities = ["text", "audio"]
 
         self._session_config = {
-            "modalities": ["text", "audio", "avatar", "animation"],
+            "modalities": modalities,
             "input_audio_sampling_rate": 24000,
             "instructions": SYSTEM_INSTRUCTIONS,
             "turn_detection": {
@@ -131,16 +146,18 @@ class VoiceLiveSession:
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
             "voice": {
-                "name": os.getenv("AZURE_TTS_VOICE", "en-IN-AartiIndicNeural"),
+                "name": os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural"),
                 "type": "azure-standard",
                 "temperature": 0.8,
             },
             "input_audio_transcription": {"model": "whisper-1"},
-            "avatar": self._build_avatar_config(),
-            "animation": {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]},
         }
+        if avatar_enabled:
+            self._session_config["avatar"] = self._build_avatar_config()
+            self._session_config["animation"] = {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]}
+
         self._response_config = {
-            "modalities": ["text", "audio"],
+            "modalities": modalities,
         }
 
     def _ws_is_open(self) -> bool:
@@ -238,6 +255,7 @@ class VoiceLiveSession:
             self.ws = await websockets.connect(ws_url, additional_headers=headers)
             logger.info("[%s] Connected to Azure Voice Live", self.session_id)
             self._receive_task = asyncio.create_task(self._receive_loop())
+            logger.info("[%s] Sending session.update with modalities: %s", self.session_id, self._session_config.get("modalities"))
             await self._send("session.update", {"session": self._session_config}, allow_reconnect=False)
             self._connected_event.set()
 
@@ -401,11 +419,16 @@ class VoiceLiveSession:
                     logger.warning("[%s] Failed to decode message", self.session_id)
                     continue
                 event_type = event.get("type")
+                logger.debug(f"[{self.session_id}] Event: {event_type}")  # Log all events for debugging
                 if event_type == "error":
+                    logger.error(f"[{self.session_id}] Azure error: {event}")
                     await self._broadcast({"type": "error", "payload": event})
                 elif event_type == "response.audio.delta":
-                    await self._broadcast({"type": "assistant_audio_delta", "delta": event.get("delta")})
+                    delta = event.get("delta")
+                    logger.info(f"[{self.session_id}] Received audio delta, length: {len(delta) if delta else 0}")
+                    await self._broadcast({"type": "assistant_audio_delta", "delta": delta})
                 elif event_type == "response.audio.done":
+                    logger.info(f"[{self.session_id}] Audio response done")
                     await self._broadcast({"type": "assistant_audio_done", "payload": event})
                 elif event_type == "response.audio_transcript.delta":
                     await self._broadcast(
@@ -445,6 +468,7 @@ class VoiceLiveSession:
                             self._avatar_future.set_exception(RuntimeError("Empty server SDP"))
                         else:
                             self._avatar_future.set_result(decoded_sdp)
+                    logger.info(f"[{self.session_id}] Avatar connecting")
                     await self._broadcast({"type": "avatar_connecting"})
                 elif event_type == "response.done":
                     await self._handle_response_done(event)

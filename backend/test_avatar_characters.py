@@ -7,12 +7,18 @@ import asyncio
 import os
 import sys
 import base64
+from pathlib import Path
 from dotenv import load_dotenv
 import websockets
 import json
 from aiortc import RTCPeerConnection, RTCSessionDescription
+from azure.identity import DefaultAzureCredential
 
-load_dotenv()
+# Load environment variables from repo root and backend root
+repo_env = Path(__file__).resolve().parent.parent / ".env"
+backend_env = Path(__file__).resolve().parent / ".env"
+load_dotenv(repo_env, override=False)
+load_dotenv(backend_env, override=False)
 
 # Common avatar character + style combinations to test
 # Format: (character, style) - style is required for validation
@@ -32,18 +38,26 @@ async def test_avatar_character(character_name: str, style: str | None) -> tuple
     api_version = os.getenv("AZURE_VOICE_LIVE_API_VERSION", "2025-05-01-preview")
     model = os.getenv("VOICE_LIVE_MODEL", "gpt-realtime")
     
-    if not endpoint or not api_key:
-        print("Error: AZURE_VOICE_LIVE_ENDPOINT and AZURE_OPENAI_API_KEY must be set")
+    if not endpoint:
+        print("Error: AZURE_VOICE_LIVE_ENDPOINT must be set")
         sys.exit(1)
     
-    # Build WebSocket URL - MUST use /voice-live/realtime path
-    ws_url = endpoint.replace("https://", "wss://").rstrip("/")
-    ws_url += f"/voice-live/realtime?api-version={api_version}&model={model}"
-    
-    # Use additional_headers for websockets 12.0+
-    headers = [
-        ("api-key", api_key),
-    ]
+    # Get authentication token or use API key
+    if api_key:
+        # Use API key if provided
+        ws_url = endpoint.replace("https://", "wss://").rstrip("/")
+        ws_url += f"/voice-live/realtime?api-version={api_version}&model={model}"
+        headers = [("api-key", api_key)]
+    else:
+        # Use Azure CLI credentials via DefaultAzureCredential
+        credential = DefaultAzureCredential()
+        scope = "https://ai.azure.com/.default"
+        token_obj = await asyncio.get_event_loop().run_in_executor(None, credential.get_token, scope)
+        token = token_obj.token
+        
+        ws_url = endpoint.replace("https://", "wss://").rstrip("/")
+        ws_url += f"/voice-live/realtime?api-version={api_version}&model={model}&agent-access-token={token}"
+        headers = [("Authorization", f"Bearer {token}")]
     
     # Create WebRTC peer connection
     pc = RTCPeerConnection()
@@ -230,6 +244,13 @@ async def main():
     print("Testing Avatar Characters for Azure Voice Live")
     print("=" * 80)
     print(f"Endpoint: {os.getenv('AZURE_VOICE_LIVE_ENDPOINT')}")
+    
+    # Show auth method
+    if os.getenv("AZURE_OPENAI_API_KEY"):
+        print("Auth: Using API key from AZURE_OPENAI_API_KEY")
+    else:
+        print("Auth: Using Azure CLI credentials (az login)")
+    
     print(f"Testing {len(COMMON_CHARACTERS)} character + style combinations...")
     print("Using REAL WebRTC negotiation with aiortc\n")
     

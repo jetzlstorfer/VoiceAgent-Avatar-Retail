@@ -43,8 +43,11 @@ class AudioCommitResponse(BaseModel):
 
 session_manager = SessionManager()
 
-# Load environment variables
-load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+# Load environment variables from repo root and backend root
+repo_env = Path(__file__).resolve().parents[2] / ".env"
+backend_env = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(repo_env, override=False)
+load_dotenv(backend_env, override=False)
 
 
 async def warmup_ecom_api():
@@ -116,9 +119,13 @@ async def _ensure_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found") from exc
 
 
+class CreateSessionRequest(BaseModel):
+    avatar_enabled: bool = False
+
+
 @app.post("/sessions", response_model=SessionResponse)
-async def create_session() -> SessionResponse:
-    session = await session_manager.create_session()
+async def create_session(request: CreateSessionRequest = CreateSessionRequest()) -> SessionResponse:
+    session = await session_manager.create_session(avatar_enabled=request.avatar_enabled)
     return SessionResponse(session_id=session.session_id)
 
 
@@ -199,11 +206,14 @@ async def serve_spa(full_path: str):
     """Serve the React SPA for any non-API routes"""
     static_dir = Path(__file__).parent.parent / "static"
     
-    # If static files exist and this isn't an API call, serve index.html
-    if static_dir.exists() and not full_path.startswith(("sessions", "ws", "health", "static")):
+    if static_dir.exists() and not full_path.startswith(("sessions", "ws", "health")):
+        # First, try to serve the exact file (e.g. /assets/index-xxx.js)
+        file_path = static_dir / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise serve index.html for SPA routing
         index_file = static_dir / "index.html"
         if index_file.exists():
-            # Warm up the ecom API when serving the main page to prevent cold start delays
             if full_path == "" or full_path == "index.html":
                 asyncio.create_task(warmup_ecom_api())
             return FileResponse(index_file)

@@ -392,6 +392,8 @@ cp .env.sample .env
 
 Key settings:
 
+**Important**: before you do anything, run the `test_avatar_characters.py` script to verify that your avatar character configuration is correct and compatible with your Speech resource region. Incorrect avatar settings are the most common source of errors when connecting to Voice Live. A very common configuration is `lisa` avatar and `casual-sitting` style, but again please verify with the script as character availability varies by region and resource.
+
 - `AZURE_VOICE_LIVE_ENDPOINT` / `VOICE_LIVE_MODEL` – Voice Live endpoint + realtime model name (e.g. `gpt-realtime-preview`).
 - `AZURE_VOICE_AVATAR_CHARACTER` – **Required**: Avatar persona that exists in your Speech Studio resource. 
   - **Find valid characters**: Go to [Speech Studio](https://speech.microsoft.com) → Your resource → Avatar section
@@ -408,7 +410,8 @@ Key settings:
 
 ### Running the Application
 
-#### Backend
+#### Backend 
+For Powershell/Windows:
 ```powershell
 cd backend
 python -m venv .venv
@@ -416,6 +419,17 @@ python -m venv .venv
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+For Linux/Dev Containers:
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 
 The backend exposes:
 - `POST /sessions` – Create a Voice Live session.
