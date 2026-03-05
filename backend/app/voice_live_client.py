@@ -223,12 +223,13 @@ class VoiceLiveSession:
     def _build_avatar_config(self) -> Dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
         style = os.getenv("AZURE_VOICE_AVATAR_STYLE")
+        customized = os.getenv("AZURE_VOICE_AVATAR_CUSTOMIZED", "false").lower() in ("true", "1", "yes")
         video_width = int(os.getenv("AZURE_VOICE_AVATAR_WIDTH", "1280"))
         video_height = int(os.getenv("AZURE_VOICE_AVATAR_HEIGHT", "720"))
         bitrate = int(os.getenv("AZURE_VOICE_AVATAR_BITRATE", "2000000"))
         config: Dict[str, Any] = {
             "character": character,
-            "customized": False,
+            "customized": customized,
             "video": {"resolution": {"width": video_width, "height": video_height}, "bitrate": bitrate},
         }
         if style:

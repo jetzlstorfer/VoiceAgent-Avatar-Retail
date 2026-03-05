@@ -401,6 +401,7 @@ Key settings:
   - **Case-sensitive**: Use exact character ID from portal (e.g., `lisa`, `james`, `michelle`)
   - Common error: `avatar_verification_failed` means the character doesn't exist in your resource/region
 - Optional `AZURE_VOICE_AVATAR_STYLE` – Supply only if the character supports named styles (leave unset to use the service default).
+- Optional `AZURE_VOICE_AVATAR_CUSTOMIZED` – Set to `true` when using a custom-trained avatar model instead of a prebuilt character (defaults to `false`).
 - `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.
