@@ -403,6 +403,7 @@ Key settings:
 - Optional `AZURE_VOICE_AVATAR_STYLE` – Supply only if the character supports named styles (leave unset to use the service default).
 - Optional `AZURE_VOICE_AVATAR_CUSTOMIZED` – Set to `true` when using a custom-trained avatar model instead of a prebuilt character (defaults to `false`).
 - `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
+- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.
 - `logic_app_url_*` – Logic App webhook endpoints.
