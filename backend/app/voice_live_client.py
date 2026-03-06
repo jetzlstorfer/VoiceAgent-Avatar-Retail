@@ -157,7 +157,7 @@ class VoiceLiveSession:
             self._session_config["animation"] = {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]}
 
         self._response_config = {
-            "modalities": modalities,
+            "modalities": ["text", "audio"],
         }
 
     def _ws_is_open(self) -> bool:
