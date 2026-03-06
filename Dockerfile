@@ -30,9 +30,9 @@ COPY backend/ ./
 # This automatically handles the frontend-to-backend file copying step
 COPY --from=frontend-build /app/frontend/dist ./static
 
-# Create startup script
+# Create startup script (strip Windows CRLF line endings)
 COPY start.sh ./
-RUN chmod +x start.sh
+RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
 
 # Expose port
 EXPOSE 8000

@@ -558,8 +558,8 @@ function App() {
                     </button>
                     {avatarEnabled && (
                         <>
-                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
-                                {avatarLoading ? "Connecting Avatar..." : "Start Avatar"}
+                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady || avatarIceServers.length === 0}>
+                                {avatarLoading ? "Connecting Avatar..." : avatarIceServers.length === 0 ? "Waiting for ICE servers..." : "Start Avatar"}
                             </button>
                             <button 
                                 onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
@@ -599,7 +599,7 @@ function App() {
                         )}
                         {!avatarReady && !avatarLoading && (
                             <div className="avatar-placeholder">
-                                <p>Click "Start Avatar" to begin video stream</p>
+                                <p>{avatarIceServers.length === 0 ? "Waiting for ICE servers from session..." : "Click \"Start Avatar\" to begin video stream"}</p>
                             </div>
                         )}
                     </div>
