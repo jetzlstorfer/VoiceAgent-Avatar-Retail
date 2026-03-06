@@ -13,3 +13,5 @@ frontend/dist/
 # macOS and Windows metadata
 .DS_Store
 Thumbs.db
+
+.vscode/
