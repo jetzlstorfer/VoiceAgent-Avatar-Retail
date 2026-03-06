@@ -87,7 +87,7 @@ az containerapp create \
     --cpu 1.0 \
     --memory 2.0Gi \
     --min-replicas 1 \
-    --max-replicas 10 \
+    --max-replicas 5 \
     --env-vars \
         "AZURE_VOICE_LIVE_ENDPOINT=${AZURE_VOICE_LIVE_ENDPOINT}" \
         "VOICE_LIVE_MODEL=${VOICE_LIVE_MODEL}" \
@@ -99,7 +99,15 @@ az containerapp create \
         "AZURE_TTS_VOICE=${AZURE_TTS_VOICE}" \
     --output none
 
-# ── 9. Get the app URL ──
+# ── 9. Enable managed identity for Azure SDK authentication ──
+echo "🔐 Enabling managed identity for ${CONTAINER_APP_NAME}..."
+az containerapp identity assign \
+    --name "${CONTAINER_APP_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --system-assigned \
+    --output none
+
+# ── 10. Get the app URL ──
 APP_URL=$(az containerapp show \
     --name "${CONTAINER_APP_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
@@ -108,3 +116,7 @@ APP_URL=$(az containerapp show \
 echo ""
 echo "✅ Deployment complete!"
 echo "🔗 App URL: https://${APP_URL}"
+echo ""
+echo "📝 Note: The Container App has a system-assigned managed identity."
+echo "   Ensure the Azure AI resources grant 'Azure AI Services User' role"
+echo "   to this managed identity for DefaultAzureCredential to work."
