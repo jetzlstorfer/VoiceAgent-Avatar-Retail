@@ -1,5 +1,5 @@
 # Multi-stage build for Azure Container App deployment
-FROM node:18-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 
 # Build frontend
 WORKDIR /app/frontend
