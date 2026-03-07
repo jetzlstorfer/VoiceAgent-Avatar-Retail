@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build:prod
 
 # Python runtime stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
