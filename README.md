@@ -432,6 +432,10 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Make sure that frontend is copied to `backend/static` so it can be served by FastAPI. The backend serves the frontend at `http://localhost:8000` and also acts as a WebSocket proxy for API calls from the frontend to Azure Voice Live API.
+```bash
+cp -r ../frontend/dist/* ./static/
+```
 
 The backend exposes:
 - `POST /sessions` – Create a Voice Live session.

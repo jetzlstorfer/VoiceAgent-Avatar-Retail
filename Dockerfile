@@ -1,5 +1,5 @@
 # Multi-stage build for Azure Container App deployment
-FROM node:22-alpine AS frontend-build
+FROM node:25-alpine AS frontend-build
 
 # Build frontend
 WORKDIR /app/frontend
@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build:prod
 
 # Python runtime stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
