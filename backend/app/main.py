@@ -125,8 +125,30 @@ class CreateSessionRequest(BaseModel):
 
 @app.post("/sessions", response_model=SessionResponse)
 async def create_session(request: CreateSessionRequest = CreateSessionRequest()) -> SessionResponse:
-    session = await session_manager.create_session(avatar_enabled=request.avatar_enabled)
-    return SessionResponse(session_id=session.session_id)
+    try:
+        session = await session_manager.create_session(avatar_enabled=request.avatar_enabled)
+        return SessionResponse(session_id=session.session_id)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("Failed to create Voice Live session")
+        error_text = str(exc)
+        if "must be set" in error_text:
+            detail = f"Configuration error: {error_text}"
+        elif (
+            "DefaultAzureCredential" in error_text
+            or "ManagedIdentity" in error_text
+            or "CredentialUnavailable" in error_text
+            or "authentication" in error_text.lower()
+        ):
+            detail = (
+                "Authentication to Azure Voice Live failed. Ensure the Container App managed identity "
+                "has 'Azure AI Services User' role on the Azure AI resource."
+            )
+        else:
+            detail = f"Unable to create Voice Live session: {error_text}"
+        raise HTTPException(
+            status_code=503,
+            detail=detail,
+        ) from exc
 
 
 @app.post("/sessions/{session_id}/avatar-offer", response_model=AvatarAnswerResponse)

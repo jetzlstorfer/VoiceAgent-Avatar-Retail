@@ -246,7 +246,20 @@ function App() {
             body: JSON.stringify({ avatar_enabled: withAvatar }),
         });
         if (!response.ok) {
-            throw new Error(`Failed to create session: ${response.status}`);
+            let errorDetail = "";
+            try {
+                const data = await response.json();
+                if (data && typeof data === "object" && "detail" in data) {
+                    errorDetail = String((data as { detail?: unknown }).detail ?? "");
+                }
+            } catch {
+                /* ignore non-JSON error body */
+            }
+            throw new Error(
+                errorDetail
+                    ? `Failed to create session: ${response.status} - ${errorDetail}`
+                    : `Failed to create session: ${response.status}`
+            );
         }
         const { session_id } = await response.json();
         setSessionId(session_id);

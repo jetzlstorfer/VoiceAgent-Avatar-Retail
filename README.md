@@ -403,6 +403,7 @@ Key settings:
 - Optional `AZURE_VOICE_AVATAR_STYLE` – Supply only if the character supports named styles (leave unset to use the service default).
 - Optional `AZURE_VOICE_AVATAR_CUSTOMIZED` – Set to `true` when using a custom-trained avatar model instead of a prebuilt character (defaults to `false`).
 - `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
+- If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
 - `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.

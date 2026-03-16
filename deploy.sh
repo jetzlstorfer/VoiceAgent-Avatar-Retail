@@ -16,9 +16,69 @@ else
     exit 1
 fi
 
+# Validate required environment variables early for clearer failures.
+REQUIRED_ENV_VARS=(
+    RESOURCE_GROUP
+    CONTAINER_REGISTRY
+    IMAGE_NAME
+    TAG
+    CONTAINER_APP_NAME
+    REGION
+    AZURE_VOICE_LIVE_ENDPOINT
+    VOICE_LIVE_MODEL
+)
+
+MISSING_VARS=()
+for var_name in "${REQUIRED_ENV_VARS[@]}"; do
+    if [ -z "${!var_name:-}" ]; then
+        MISSING_VARS+=("${var_name}")
+    fi
+done
+
+if [ "${#MISSING_VARS[@]}" -gt 0 ]; then
+    echo "❌ Missing required environment variables in .env:"
+    for missing in "${MISSING_VARS[@]}"; do
+        echo "   - ${missing}"
+    done
+    echo ""
+    echo "Populate the missing values in .env and rerun deploy.sh."
+    exit 1
+fi
+
 # Derived values
 CONTAINER_REGISTRY_FQDN="${CONTAINER_REGISTRY}.azurecr.io"
 CONTAINER_APPS_ENV="${CONTAINER_APP_NAME}-env"
+VOICE_LIVE_ENDPOINT_HOST="$(printf '%s' "${AZURE_VOICE_LIVE_ENDPOINT}" | sed -E 's#^https?://##; s#/.*$##')"
+
+ensure_role_assignment() {
+    local principal_id="$1"
+    local scope="$2"
+    local role_name="$3"
+
+    local existing_assignments
+    existing_assignments=$(az role assignment list \
+        --assignee-object-id "${principal_id}" \
+        --scope "${scope}" \
+        --query "[?roleDefinitionName=='${role_name}'] | length(@)" \
+        -o tsv 2>/dev/null || echo "0")
+
+    if [ "${existing_assignments}" != "0" ]; then
+        echo "   Role already assigned: ${role_name}"
+        return 0
+    fi
+
+    if az role assignment create \
+        --assignee-object-id "${principal_id}" \
+        --assignee-principal-type ServicePrincipal \
+        --role "${role_name}" \
+        --scope "${scope}" \
+        --output none 2>/dev/null; then
+        echo "   Assigned role: ${role_name}"
+    else
+        echo "   ⚠️  Failed to assign role '${role_name}'."
+        echo "      Ensure your Azure account can create role assignments for ${scope}."
+    fi
+}
 
 echo "🚀 Deploying Voice Live Avatar to Azure Container Apps"
 echo "   Resource Group:  ${RESOURCE_GROUP}"
@@ -30,7 +90,35 @@ echo ""
 
 # ── 1. Ensure containerapp CLI extension ──
 echo "🔧 Ensuring containerapp CLI extension..."
-az extension add --name containerapp --upgrade --yes 2>/dev/null || true
+
+AZ_CLI_VERSION=$(az version --query '"azure-cli"' -o tsv 2>/dev/null || az --version | awk '/azure-cli/ {print $2; exit}')
+REQUIRED_AZ_CLI_VERSION="2.45.0"
+
+# Container Apps commands require a modern Azure CLI.
+if ! printf '%s\n%s\n' "${REQUIRED_AZ_CLI_VERSION}" "${AZ_CLI_VERSION}" | sort -V -C; then
+    echo "❌ Azure CLI ${AZ_CLI_VERSION} is too old for Container Apps."
+    echo "   Required version: >= ${REQUIRED_AZ_CLI_VERSION}"
+    echo "   Please upgrade Azure CLI, then re-run this script."
+    exit 1
+fi
+
+if ! az containerapp --help >/dev/null 2>&1; then
+    echo "ℹ️  'az containerapp' not currently available. Installing extension..."
+    if az extension show --name containerapp >/dev/null 2>&1; then
+        az extension update --name containerapp >/dev/null 2>&1 || true
+    else
+        az extension add --name containerapp --yes
+    fi
+fi
+
+if ! az containerapp --help >/dev/null 2>&1; then
+    echo "❌ 'az containerapp' is still unavailable after extension install."
+    echo "   Azure CLI version: $(az version --query '"azure-cli"' -o tsv 2>/dev/null || echo unknown)"
+    echo "   Try updating Azure CLI and re-running:"
+    echo "   - az upgrade --yes"
+    echo "   - az extension add --name containerapp --yes"
+    exit 1
+fi
 
 # ── 2. Register required providers ──
 echo "🔧 Registering resource providers..."
@@ -97,6 +185,7 @@ az containerapp create \
         "AZURE_VOICE_AVATAR_HEIGHT=${AZURE_VOICE_AVATAR_HEIGHT}" \
         "AZURE_VOICE_AVATAR_BITRATE=${AZURE_VOICE_AVATAR_BITRATE}" \
         "AZURE_TTS_VOICE=${AZURE_TTS_VOICE}" \
+        "AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}" \
     --output none
 
 # ── 9. Enable managed identity for Azure SDK authentication ──
@@ -107,7 +196,29 @@ az containerapp identity assign \
     --system-assigned \
     --output none
 
-# ── 10. Get the app URL ──
+# ── 10. Assign Voice Live RBAC roles to the managed identity when possible ──
+echo "🔐 Ensuring Voice Live RBAC assignments..."
+CONTAINER_APP_PRINCIPAL_ID=$(az containerapp show \
+    --name "${CONTAINER_APP_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --query identity.principalId -o tsv 2>/dev/null || true)
+VOICE_LIVE_RESOURCE_ID=$(az cognitiveservices account list \
+    --query "[?contains(properties.endpoint, '${VOICE_LIVE_ENDPOINT_HOST}')].id | [0]" \
+    -o tsv 2>/dev/null || true)
+
+if [ -n "${CONTAINER_APP_PRINCIPAL_ID}" ] && [ -n "${VOICE_LIVE_RESOURCE_ID}" ]; then
+    echo "   Matched Voice Live resource: ${VOICE_LIVE_RESOURCE_ID}"
+    ensure_role_assignment "${CONTAINER_APP_PRINCIPAL_ID}" "${VOICE_LIVE_RESOURCE_ID}" "Cognitive Services User"
+    ensure_role_assignment "${CONTAINER_APP_PRINCIPAL_ID}" "${VOICE_LIVE_RESOURCE_ID}" "Cognitive Services OpenAI User"
+    echo "   RBAC propagation can take a few minutes after deployment."
+else
+    echo "   ⚠️  Could not automatically determine RBAC scope for ${AZURE_VOICE_LIVE_ENDPOINT}."
+    echo "      If you use managed identity, assign these roles manually on the matching Cognitive Services resource:"
+    echo "      - Cognitive Services User"
+    echo "      - Cognitive Services OpenAI User"
+fi
+
+# ── 11. Get the app URL ──
 APP_URL=$(az containerapp show \
     --name "${CONTAINER_APP_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
@@ -118,5 +229,7 @@ echo "✅ Deployment complete!"
 echo "🔗 App URL: https://${APP_URL}"
 echo ""
 echo "📝 Note: The Container App has a system-assigned managed identity."
-echo "   Ensure the Azure AI resources grant 'Azure AI Services User' role"
-echo "   to this managed identity for DefaultAzureCredential to work."
+echo "   The script attempted to assign 'Cognitive Services User' and"
+echo "   'Cognitive Services OpenAI User' on the matching Voice Live resource."
+echo "   If session creation still fails with 401/403, wait a few minutes for"
+echo "   RBAC propagation and verify the role assignments in Azure."

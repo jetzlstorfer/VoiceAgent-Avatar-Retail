@@ -93,7 +93,7 @@ You have access to the following tools and knowledge. Use these to get context t
 
 Important confirmation requirements:
 **Empathize with the customer when you respond**
-**Remember that your persona is that of a woman.**
+**Remember that your persona is that of a man.**
 """
 
 
@@ -120,6 +120,11 @@ class VoiceLiveSession:
         self._api_version = os.getenv("AZURE_VOICE_LIVE_API_VERSION", "2025-05-01-preview")
         self._api_key = os.getenv("AZURE_OPENAI_API_KEY")
         self._use_api_key = bool(self._api_key)
+        scopes_raw = os.getenv(
+            "AZURE_VOICE_LIVE_TOKEN_SCOPES",
+            "https://ai.azure.com/.default,https://cognitiveservices.azure.com/.default",
+        )
+        self._token_scopes = [scope.strip() for scope in scopes_raw.split(",") if scope.strip()]
         
         logger.info(f"[{session_id}] Voice Live config: endpoint={endpoint}, model={model}, avatar_enabled={avatar_enabled}, avatar_character={avatar_character}, api_version={self._api_version}")
 
@@ -249,11 +254,29 @@ class VoiceLiveSession:
             if self._use_api_key:
                 ws_url = self._build_ws_url()
                 headers["api-key"] = self._api_key  # Azure OpenAI key
+                self.ws = await websockets.connect(ws_url, additional_headers=headers)
             else:
-                token = await self._get_token()
-                ws_url = self._build_ws_url(token)
-                headers["Authorization"] = f"Bearer {token}"
-            self.ws = await websockets.connect(ws_url, additional_headers=headers)
+                last_error: Optional[Exception] = None
+                for scope in self._token_scopes:
+                    try:
+                        token = await self._get_token(scope)
+                        ws_url = self._build_ws_url(token)
+                        auth_headers = {**headers, "Authorization": f"Bearer {token}"}
+                        self.ws = await websockets.connect(ws_url, additional_headers=auth_headers)
+                        logger.info("[%s] Connected using token scope %s", self.session_id, scope)
+                        last_error = None
+                        break
+                    except Exception as exc:  # pylint: disable=broad-except
+                        last_error = exc
+                        logger.warning("[%s] Failed to connect with token scope %s: %s", self.session_id, scope, str(exc))
+                if self.ws is None:
+                    if last_error:
+                        raise RuntimeError(
+                            "Authentication failed for all token scopes. "
+                            "Set AZURE_OPENAI_API_KEY or ensure managed identity has Azure AI Services User role. "
+                            f"Last error: {str(last_error)}"
+                        ) from last_error
+                    raise RuntimeError("Authentication failed: no token scopes configured")
             logger.info("[%s] Connected to Azure Voice Live", self.session_id)
             self._receive_task = asyncio.create_task(self._receive_loop())
             logger.info("[%s] Sending session.update with modalities: %s", self.session_id, self._session_config.get("modalities"))
@@ -270,9 +293,8 @@ class VoiceLiveSession:
             self._connected_event.clear()
             logger.info("[%s] Disconnected session", self.session_id)
 
-    async def _get_token(self) -> str:
+    async def _get_token(self, scope: str) -> str:
         credential = DefaultAzureCredential()
-        scope = "https://ai.azure.com/.default"
         token = await asyncio.get_event_loop().run_in_executor(None, credential.get_token, scope)
         return token.token
 
