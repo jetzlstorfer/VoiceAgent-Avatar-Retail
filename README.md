@@ -413,8 +413,33 @@ Key settings:
 
 ### Running the Application
 
-#### Backend 
-For Powershell/Windows:
+The recommended way to run the application is using the **Makefile** (works on Linux and dev containers). For Windows PowerShell, use the manual commands below.
+
+#### Using Makefile (Linux/Dev Containers)
+
+A `Makefile` is provided to simplify startup:
+
+```bash
+# First time setup: create venv and install all Python dependencies
+make install
+
+# Fast startup after make install: copy frontend and start backend
+make run-copy
+
+# Or full startup with dependency installation: install, copy frontend, and run
+make run
+```
+
+Available Makefile targets:
+- `make install` – Create backend virtual environment and install Python dependencies
+- `make run` – Install dependencies, copy `frontend/dist` to `backend/static`, and start backend on port 8000
+- `make run-copy` – Copy `frontend/dist` to `backend/static` and start backend (skips dependency installation; requires `make install` first)
+- `make copy-frontend` – Manually sync `frontend/dist` to `backend/static`
+- `make clean` – Remove backend virtual environment
+
+#### Manual Startup (Powershell/Windows or if not using Makefile)
+
+**Backend:**
 ```powershell
 cd backend
 python -m venv .venv
@@ -423,7 +448,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-For Linux/Dev Containers:
+**Linux/Dev Containers (without Makefile):**
 ```bash
 cd backend
 python -m venv .venv
@@ -435,9 +460,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Make sure that frontend is copied to `backend/static` so it can be served by FastAPI. The backend serves the frontend at `http://localhost:8000` and also acts as a WebSocket proxy for API calls from the frontend to Azure Voice Live API.
-```bash
-cp -r ../frontend/dist/* ./static/
-```
 
 The backend exposes:
 - `POST /sessions` – Create a Voice Live session.
@@ -447,6 +469,7 @@ The backend exposes:
 - `WS /ws/sessions/{id}` – Bi-directional channel for audio streaming and realtime events.
 
 #### Frontend
+
 ```powershell
 cd frontend
 npm install
