@@ -26,6 +26,9 @@ install: $(VENV_DIR)/bin/python
 	$(PIP) install --upgrade pip setuptools wheel
 	$(PIP) install -r $(BACKEND_DIR)/requirements.txt
 
+build-frontend:
+	cd $(FRONTEND_DIR) && npm install && npm run build
+
 copy-frontend:
 	@if [ ! -d "$(FRONTEND_DIST)" ]; then \
 		echo "Missing $(FRONTEND_DIST). Build frontend first (example: cd frontend && npm install && npm run build)."; \
@@ -37,7 +40,7 @@ copy-frontend:
 run: install copy-frontend
 	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir $(BACKEND_DIR)
 
-run-copy: copy-frontend
+run-copy: build-frontend copy-frontend
 	@if [ ! -x "$(UVICORN)" ]; then \
 		echo "Missing $(UVICORN). Run 'make install' first."; \
 		exit 1; \

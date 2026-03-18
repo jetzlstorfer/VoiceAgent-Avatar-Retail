@@ -33,6 +33,34 @@ h1 {
   flex-wrap: wrap;
 }
 
+.slider-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #bae6fd;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.slider-control input[type="range"] {
+  width: 120px;
+  accent-color: #38bdf8;
+}
+
+.background-select {
+  min-width: 170px;
+  border-radius: 6px;
+  border: 1px solid rgba(125, 211, 252, 0.6);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.45rem;
+}
+
 button {
   padding: 0.6rem 1.1rem;
   border-radius: 8px;
@@ -89,7 +117,8 @@ button.refresh-button:hover:not(:disabled) {
 
 .video-container {
   position: relative;
-  min-height: 400px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   background: #0b1120;
   border-radius: 12px;
   overflow: hidden;

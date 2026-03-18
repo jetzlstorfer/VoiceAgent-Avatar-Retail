@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import ReactMarkdown from 'react-markdown';
-import win98Wallpaper from "../background/win98-wallpaper.jpg";
+
+type BackgroundOption = {
+    path: string;
+    url: string;
+    label: string;
+};
 
 type LogEntry = { id: string; text: string };
 
@@ -19,6 +24,27 @@ const BACKEND_HTTP_BASE = (import.meta.env.VITE_BACKEND_BASE as string | undefin
 const BACKEND_WS_BASE = BACKEND_HTTP_BASE.replace(/^http/, "ws");
 const TARGET_SAMPLE_RATE = 24000;
 const INT16_MAX = 32767;
+
+const backgroundImageModules = import.meta.glob<string>("../background/*.{jpg,jpeg,png,webp,gif}", {
+    eager: true,
+    import: "default",
+}) as Record<string, string>;
+
+const backgroundOptions: BackgroundOption[] = Object.entries(backgroundImageModules)
+    .map(([path, url]) => {
+        const fileName = path.split("/").pop() ?? path;
+        return {
+            path,
+            url,
+            label: decodeURIComponent(fileName),
+        };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+const defaultBackgroundPath =
+    backgroundOptions.find((option) => option.label.toLowerCase().includes("win98-wallpaper"))?.path
+    ?? backgroundOptions[0]?.path
+    ?? "";
 
 function float32ToBase64(data: Float32Array): string {
     const buffer = new Uint8Array(data.buffer);
@@ -87,6 +113,8 @@ function App() {
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
     const [customBackgroundEnabled, setCustomBackgroundEnabled] = useState(false);
+    const [keySensitivity, setKeySensitivity] = useState(50);
+    const [selectedBackgroundPath, setSelectedBackgroundPath] = useState(defaultBackgroundPath);
     const [assistantTranscript, setAssistantTranscript] = useState("");
     const [userTranscript, setUserTranscript] = useState("");
     const [entries, appendLog] = useLog();
@@ -182,16 +210,48 @@ function App() {
                 return;
             }
 
-            if (currentCanvas.width !== width || currentCanvas.height !== height) {
-                currentCanvas.width = width;
-                currentCanvas.height = height;
+            const displayWidth = Math.max(1, currentCanvas.clientWidth);
+            const displayHeight = Math.max(1, currentCanvas.clientHeight);
+            const dpr = window.devicePixelRatio || 1;
+            const targetWidth = Math.max(1, Math.round(displayWidth * dpr));
+            const targetHeight = Math.max(1, Math.round(displayHeight * dpr));
+
+            if (currentCanvas.width !== targetWidth || currentCanvas.height !== targetHeight) {
+                currentCanvas.width = targetWidth;
+                currentCanvas.height = targetHeight;
             }
 
-            ctx.clearRect(0, 0, width, height);
-            ctx.drawImage(currentVideo, 0, 0, width, height);
+            ctx.clearRect(0, 0, targetWidth, targetHeight);
 
-            const frame = ctx.getImageData(0, 0, width, height);
+            const videoAspect = width / height;
+            const canvasAspect = targetWidth / targetHeight;
+
+            let drawWidth = targetWidth;
+            let drawHeight = targetHeight;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            if (videoAspect > canvasAspect) {
+                drawHeight = targetWidth / videoAspect;
+                offsetY = (targetHeight - drawHeight) / 2;
+            } else {
+                drawWidth = targetHeight * videoAspect;
+                offsetX = (targetWidth - drawWidth) / 2;
+            }
+
+            ctx.drawImage(currentVideo, offsetX, offsetY, drawWidth, drawHeight);
+
+            const frame = ctx.getImageData(0, 0, targetWidth, targetHeight);
             const data = frame.data;
+
+            // Higher sensitivity removes more near-white pixels to reduce halo artifacts.
+            const sensitivity = Math.max(0, Math.min(100, keySensitivity));
+            const hardBrightnessThreshold = 245 - sensitivity * 0.4;
+            const hardColorSpreadThreshold = 20 + sensitivity * 0.2;
+            const softnessBand = 20;
+            const spreadSoftnessBand = 15;
+            const softBrightnessThreshold = hardBrightnessThreshold - softnessBand;
+            const softColorSpreadThreshold = hardColorSpreadThreshold + spreadSoftnessBand;
 
             for (let i = 0; i < data.length; i += 4) {
                 const r = data[i];
@@ -201,11 +261,11 @@ function App() {
                 const brightness = (r + g + b) / 3;
                 const colorSpread = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
 
-                if (brightness > 225 && colorSpread < 30) {
+                if (brightness > hardBrightnessThreshold && colorSpread < hardColorSpreadThreshold) {
                     data[i + 3] = 0;
-                } else if (brightness > 205 && colorSpread < 45) {
+                } else if (brightness > softBrightnessThreshold && colorSpread < softColorSpreadThreshold) {
                     // Fade out edge pixels for a smoother matte around the avatar.
-                    const edgeBlend = (225 - brightness) / 20;
+                    const edgeBlend = (hardBrightnessThreshold - brightness) / Math.max(1, softnessBand);
                     data[i + 3] = Math.round(255 * Math.max(0, Math.min(1, edgeBlend)));
                 }
             }
@@ -222,7 +282,7 @@ function App() {
                 compositeRafRef.current = null;
             }
         };
-    }, [avatarEnabled, avatarPaused, avatarReady, customBackgroundEnabled]);
+    }, [avatarEnabled, avatarPaused, avatarReady, customBackgroundEnabled, keySensitivity]);
 
     const connectWebSocket = useCallback(
         (id: string) => {
@@ -654,6 +714,19 @@ function App() {
         });
     }, [appendLog]);
 
+    const onKeySensitivityChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+        setKeySensitivity(Number(event.target.value));
+    }, []);
+
+    const onBackgroundSelectionChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+        setSelectedBackgroundPath(event.target.value);
+    }, []);
+
+    const selectedBackgroundUrl =
+        backgroundOptions.find((option) => option.path === selectedBackgroundPath)?.url
+        ?? backgroundOptions[0]?.url
+        ?? "";
+
     return (
         <main>
             <h1>Contoso Retail - Azure Voice Live Agent</h1>
@@ -709,6 +782,36 @@ function App() {
                             >
                                 {customBackgroundEnabled ? "🖼️ Background On" : "🖼️ Background Off"}
                             </button>
+                            <label className="slider-control" title="Pick a background image from the background folder">
+                                <span>Background</span>
+                                <select
+                                    className="background-select"
+                                    value={selectedBackgroundPath}
+                                    onChange={onBackgroundSelectionChange}
+                                    disabled={backgroundOptions.length === 0}
+                                >
+                                    {backgroundOptions.length === 0 && <option value="">No images found</option>}
+                                    {backgroundOptions.map((option) => (
+                                        <option key={option.path} value={option.path}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            {customBackgroundEnabled && (
+                                <>
+                                    <label className="slider-control" title="Tune white background removal strength">
+                                        <span>Key Sensitivity {keySensitivity}</span>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={100}
+                                            value={keySensitivity}
+                                            onChange={onKeySensitivityChange}
+                                        />
+                                    </label>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -719,7 +822,7 @@ function App() {
                     <h2>Avatar Stream</h2>
                     <div
                         className={`video-container ${customBackgroundEnabled ? "custom-background" : ""}`}
-                        style={customBackgroundEnabled ? { backgroundImage: `url(${win98Wallpaper})` } : undefined}
+                        style={customBackgroundEnabled && selectedBackgroundUrl ? { backgroundImage: `url(${selectedBackgroundUrl})` } : undefined}
                     >
                         <video
                             ref={videoRef}
