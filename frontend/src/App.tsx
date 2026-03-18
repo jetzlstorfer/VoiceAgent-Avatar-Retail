@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from 'react-markdown';
+import win98Wallpaper from "../background/win98-wallpaper.jpg";
 
 type LogEntry = { id: string; text: string };
 
@@ -85,6 +86,7 @@ function App() {
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
+    const [customBackgroundEnabled, setCustomBackgroundEnabled] = useState(false);
     const [assistantTranscript, setAssistantTranscript] = useState("");
     const [userTranscript, setUserTranscript] = useState("");
     const [entries, appendLog] = useLog();
@@ -92,7 +94,10 @@ function App() {
 
     const wsRef = useRef<WebSocket | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
+    const autoStartAvatarRef = useRef(false);
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const compositeRafRef = useRef<number | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
     const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -144,6 +149,80 @@ function App() {
     }, []);
 
     useEffect(() => () => teardownMic(), [teardownMic]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        const canvas = compositeCanvasRef.current;
+
+        if (!customBackgroundEnabled || !avatarEnabled || !avatarReady || avatarPaused || !video || !canvas) {
+            if (compositeRafRef.current !== null) {
+                cancelAnimationFrame(compositeRafRef.current);
+                compositeRafRef.current = null;
+            }
+            return;
+        }
+
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) {
+            return;
+        }
+
+        const renderFrame = () => {
+            const currentVideo = videoRef.current;
+            const currentCanvas = compositeCanvasRef.current;
+            if (!currentVideo || !currentCanvas) {
+                return;
+            }
+
+            const width = currentVideo.videoWidth;
+            const height = currentVideo.videoHeight;
+
+            if (!width || !height || currentVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+                compositeRafRef.current = requestAnimationFrame(renderFrame);
+                return;
+            }
+
+            if (currentCanvas.width !== width || currentCanvas.height !== height) {
+                currentCanvas.width = width;
+                currentCanvas.height = height;
+            }
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(currentVideo, 0, 0, width, height);
+
+            const frame = ctx.getImageData(0, 0, width, height);
+            const data = frame.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                const brightness = (r + g + b) / 3;
+                const colorSpread = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
+
+                if (brightness > 225 && colorSpread < 30) {
+                    data[i + 3] = 0;
+                } else if (brightness > 205 && colorSpread < 45) {
+                    // Fade out edge pixels for a smoother matte around the avatar.
+                    const edgeBlend = (225 - brightness) / 20;
+                    data[i + 3] = Math.round(255 * Math.max(0, Math.min(1, edgeBlend)));
+                }
+            }
+
+            ctx.putImageData(frame, 0, 0);
+            compositeRafRef.current = requestAnimationFrame(renderFrame);
+        };
+
+        compositeRafRef.current = requestAnimationFrame(renderFrame);
+
+        return () => {
+            if (compositeRafRef.current !== null) {
+                cancelAnimationFrame(compositeRafRef.current);
+                compositeRafRef.current = null;
+            }
+        };
+    }, [avatarEnabled, avatarPaused, avatarReady, customBackgroundEnabled]);
 
     const connectWebSocket = useCallback(
         (id: string) => {
@@ -477,11 +556,36 @@ function App() {
         }
     }, [appendLog, sessionId, avatarIceServers]);
 
+    useEffect(() => {
+        if (!autoStartAvatarRef.current) {
+            return;
+        }
+        if (!avatarEnabled || !sessionId) {
+            return;
+        }
+        if (avatarIceServers.length === 0 || avatarLoading || avatarReady || pcRef.current) {
+            return;
+        }
+
+        autoStartAvatarRef.current = false;
+        startAvatar().catch((error: unknown) => {
+            appendLog(`Auto-start avatar failed: ${String(error)}`);
+        });
+    }, [appendLog, avatarEnabled, avatarIceServers.length, avatarLoading, avatarReady, sessionId, startAvatar]);
+
     const teardownAvatar = useCallback(() => {
+        if (compositeRafRef.current !== null) {
+            cancelAnimationFrame(compositeRafRef.current);
+            compositeRafRef.current = null;
+        }
         pcRef.current?.close();
         pcRef.current = null;
         if (videoRef.current) {
             videoRef.current.srcObject = null;
+        }
+        if (compositeCanvasRef.current) {
+            const canvasCtx = compositeCanvasRef.current.getContext("2d");
+            canvasCtx?.clearRect(0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
         }
         if (remoteAudioRef.current) {
             remoteAudioRef.current.pause();
@@ -497,6 +601,7 @@ function App() {
 
     const toggleAvatarMode = useCallback(async () => {
         const newMode = !avatarEnabled;
+        autoStartAvatarRef.current = newMode;
         // Tear down existing connections
         teardownMic();
         if (pcRef.current) {
@@ -510,6 +615,7 @@ function App() {
         try {
             await createSession(newMode);
         } catch (err) {
+            autoStartAvatarRef.current = false;
             appendLog(`Error switching mode: ${String(err)}`);
         }
     }, [avatarEnabled, teardownMic, teardownAvatar, createSession, appendLog]);
@@ -538,6 +644,14 @@ function App() {
         }
         setAvatarPaused(false);
         appendLog("Avatar resumed");
+    }, [appendLog]);
+
+    const toggleCustomBackground = useCallback(() => {
+        setCustomBackgroundEnabled((prev) => {
+            const next = !prev;
+            appendLog(next ? "Custom avatar background enabled" : "Custom avatar background disabled");
+            return next;
+        });
     }, [appendLog]);
 
     return (
@@ -588,6 +702,13 @@ function App() {
                             >
                                 Stop Avatar
                             </button>
+                            <button
+                                className={`secondary ${customBackgroundEnabled ? "active" : ""}`}
+                                onClick={toggleCustomBackground}
+                                title="Toggle custom avatar background"
+                            >
+                                {customBackgroundEnabled ? "🖼️ Background On" : "🖼️ Background Off"}
+                            </button>
                         </>
                     )}
                 </div>
@@ -596,8 +717,19 @@ function App() {
             {avatarEnabled && (
                 <section className="section video-wrapper">
                     <h2>Avatar Stream</h2>
-                    <div className="video-container">
-                        <video ref={videoRef} autoPlay playsInline muted={false} controls={false} />
+                    <div
+                        className={`video-container ${customBackgroundEnabled ? "custom-background" : ""}`}
+                        style={customBackgroundEnabled ? { backgroundImage: `url(${win98Wallpaper})` } : undefined}
+                    >
+                        <video
+                            ref={videoRef}
+                            className={customBackgroundEnabled ? "video-hidden-for-key" : undefined}
+                            autoPlay
+                            playsInline
+                            muted={false}
+                            controls={false}
+                        />
+                        {customBackgroundEnabled && <canvas ref={compositeCanvasRef} className="avatar-composite-canvas" />}
                         {avatarLoading && (
                             <div className="avatar-loading-overlay">
                                 <div className="loading-spinner"></div>
