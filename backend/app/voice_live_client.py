@@ -151,11 +151,7 @@ class VoiceLiveSession:
             "tool_choice": "auto",
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-            "voice": {
-                "name": os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural"),
-                "type": "azure-standard",
-                "temperature": 0.8,
-            },
+            "voice": self._build_voice_config(),
             "input_audio_transcription": {"model": "whisper-1"},
         }
         if avatar_enabled:
@@ -225,6 +221,23 @@ class VoiceLiveSession:
                 pass
         close_code = getattr(self.ws, "close_code", None)
         return close_code is None
+
+    def _build_voice_config(self) -> Dict[str, Any]:
+        # When AZURE_VOICE_TYPE is "azure-avatar" the audio is sourced from the
+        # trained avatar model itself rather than a separate TTS stream.
+        # When set to "azure-standard" (the default) a standalone Azure Neural
+        # TTS voice is used and the voice name is taken from AZURE_TTS_VOICE.
+        voice_type = os.getenv("AZURE_VOICE_TYPE", "azure-standard")
+        if voice_type == "azure-avatar":
+            voice_name = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
+        else:
+            voice_name = os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural")
+        config: Dict[str, Any] = {
+            "name": voice_name,
+            "type": voice_type,
+            "temperature": 0.8,
+        }
+        return config
 
     def _build_avatar_config(self) -> Dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
