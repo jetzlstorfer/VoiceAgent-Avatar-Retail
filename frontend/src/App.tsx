@@ -24,6 +24,8 @@ const BACKEND_HTTP_BASE = (import.meta.env.VITE_BACKEND_BASE as string | undefin
 const BACKEND_WS_BASE = BACKEND_HTTP_BASE.replace(/^http/, "ws");
 const TARGET_SAMPLE_RATE = 24000;
 const INT16_MAX = 32767;
+const AVATAR_LOAD_AVG_MS_STORAGE_KEY = "avatar-load-average-ms";
+const DEFAULT_AVATAR_LOAD_AVG_MS = 30000;
 
 const backgroundImageModules = import.meta.glob<string>("../background/*.{jpg,jpeg,png,webp,gif}", {
     eager: true,
@@ -112,6 +114,9 @@ function App() {
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
+    const [avatarLoadStartedAt, setAvatarLoadStartedAt] = useState<number | null>(null);
+    const [avatarLoadElapsedMs, setAvatarLoadElapsedMs] = useState(0);
+    const [avatarLoadAvgMs, setAvatarLoadAvgMs] = useState(DEFAULT_AVATAR_LOAD_AVG_MS);
     const [customBackgroundEnabled, setCustomBackgroundEnabled] = useState(false);
     const [keySensitivity, setKeySensitivity] = useState(50);
     const [selectedBackgroundPath, setSelectedBackgroundPath] = useState(defaultBackgroundPath);
@@ -177,6 +182,37 @@ function App() {
     }, []);
 
     useEffect(() => () => teardownMic(), [teardownMic]);
+
+    useEffect(() => {
+        try {
+            const storedAvg = window.localStorage.getItem(AVATAR_LOAD_AVG_MS_STORAGE_KEY);
+            if (!storedAvg) {
+                return;
+            }
+            const parsed = Number(storedAvg);
+            if (Number.isFinite(parsed) && parsed > 1000) {
+                setAvatarLoadAvgMs(Math.max(DEFAULT_AVATAR_LOAD_AVG_MS, parsed));
+            }
+        } catch {
+            /* ignore localStorage read errors */
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!avatarLoading || avatarLoadStartedAt === null) {
+            setAvatarLoadElapsedMs(0);
+            return;
+        }
+
+        setAvatarLoadElapsedMs(Date.now() - avatarLoadStartedAt);
+        const timer = window.setInterval(() => {
+            setAvatarLoadElapsedMs(Date.now() - avatarLoadStartedAt);
+        }, 250);
+
+        return () => {
+            window.clearInterval(timer);
+        };
+    }, [avatarLoading, avatarLoadStartedAt]);
 
     useEffect(() => {
         const video = videoRef.current;
@@ -520,7 +556,12 @@ function App() {
             return;
         }
 
+        const avatarLoadStartedAtMs = Date.now();
+        let avatarConnected = false;
+
         setAvatarLoading(true);
+        setAvatarLoadStartedAt(avatarLoadStartedAtMs);
+        setAvatarLoadElapsedMs(0);
         appendLog("Initializing avatar connection...");
 
         try {
@@ -603,18 +644,33 @@ function App() {
 
             const { sdp } = await response.json();
             await pc.setRemoteDescription({ type: "answer", sdp });
-            setAvatarLoading(false);
             setAvatarReady(true);
+            avatarConnected = true;
             appendLog("Avatar connected");
         } catch (error) {
             appendLog(`Avatar connection error: ${String(error)}`);
-            setAvatarLoading(false);
             if (pcRef.current) {
                 pcRef.current.close();
                 pcRef.current = null;
             }
+        } finally {
+            setAvatarLoading(false);
+            setAvatarLoadStartedAt(null);
+            if (avatarConnected) {
+                const loadDurationMs = Date.now() - avatarLoadStartedAtMs;
+                const nextAverage = Math.max(
+                    DEFAULT_AVATAR_LOAD_AVG_MS,
+                    Math.round(avatarLoadAvgMs * 0.65 + loadDurationMs * 0.35)
+                );
+                setAvatarLoadAvgMs(nextAverage);
+                try {
+                    window.localStorage.setItem(AVATAR_LOAD_AVG_MS_STORAGE_KEY, String(nextAverage));
+                } catch {
+                    /* ignore localStorage write errors */
+                }
+            }
         }
-    }, [appendLog, sessionId, avatarIceServers]);
+    }, [appendLog, sessionId, avatarIceServers, avatarLoadAvgMs]);
 
     useEffect(() => {
         if (!autoStartAvatarRef.current) {
@@ -656,6 +712,8 @@ function App() {
         setAvatarLoading(false);
         setAvatarReady(false);
         setAvatarPaused(false);
+        setAvatarLoadStartedAt(null);
+        setAvatarLoadElapsedMs(0);
         appendLog("Avatar connection closed");
     }, [appendLog]);
 
@@ -727,6 +785,18 @@ function App() {
         ?? backgroundOptions[0]?.url
         ?? "";
 
+    const avatarLoadProgressPercent = Math.min(
+        95,
+        Math.max(8, (avatarLoadElapsedMs / Math.max(1000, avatarLoadAvgMs)) * 100)
+    );
+    const avatarLoadElapsedSeconds = Math.max(1, Math.ceil(avatarLoadElapsedMs / 1000));
+    const avatarLoadEstimatedRemainingMs = Math.max(0, avatarLoadAvgMs - avatarLoadElapsedMs);
+    const avatarLoadEstimatedRemainingSeconds = Math.ceil(avatarLoadEstimatedRemainingMs / 1000);
+    const avatarLoadEstimateLabel =
+        avatarLoadEstimatedRemainingMs === 0
+            ? "Taking a bit longer than usual..."
+            : `Estimated ${avatarLoadEstimatedRemainingSeconds}s remaining`;
+
     return (
         <main>
             <h1>Contoso Retail - Azure Voice Live Agent</h1>
@@ -758,8 +828,8 @@ function App() {
                     </button>
                     {avatarEnabled && (
                         <>
-                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady || avatarIceServers.length === 0}>
-                                {avatarLoading ? "Connecting Avatar..." : avatarIceServers.length === 0 ? "Waiting for ICE servers..." : "Start Avatar"}
+                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
+                                {avatarLoading ? "Connecting Avatar..." : avatarIceServers.length === 0 ? "Start Avatar (ICE pending)" : "Start Avatar"}
                             </button>
                             <button 
                                 onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
@@ -782,22 +852,24 @@ function App() {
                             >
                                 {customBackgroundEnabled ? "🖼️ Background On" : "🖼️ Background Off"}
                             </button>
-                            <label className="slider-control" title="Pick a background image from the background folder">
-                                <span>Background</span>
-                                <select
-                                    className="background-select"
-                                    value={selectedBackgroundPath}
-                                    onChange={onBackgroundSelectionChange}
-                                    disabled={backgroundOptions.length === 0}
-                                >
-                                    {backgroundOptions.length === 0 && <option value="">No images found</option>}
-                                    {backgroundOptions.map((option) => (
-                                        <option key={option.path} value={option.path}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                            {customBackgroundEnabled && (
+                                <label className="slider-control" title="Pick a background image from the background folder">
+                                    <span>Background</span>
+                                    <select
+                                        className="background-select"
+                                        value={selectedBackgroundPath}
+                                        onChange={onBackgroundSelectionChange}
+                                        disabled={backgroundOptions.length === 0}
+                                    >
+                                        {backgroundOptions.length === 0 && <option value="">No images found</option>}
+                                        {backgroundOptions.map((option) => (
+                                            <option key={option.path} value={option.path}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
                             {customBackgroundEnabled && (
                                 <>
                                     <label className="slider-control" title="Tune white background removal strength">
@@ -836,7 +908,14 @@ function App() {
                         {avatarLoading && (
                             <div className="avatar-loading-overlay">
                                 <div className="loading-spinner"></div>
-                                <p>Loading Avatar...</p>
+                                <p>Loading Avatar... {avatarLoadElapsedSeconds}s elapsed</p>
+                                <div className="avatar-progress-track" aria-hidden="true">
+                                    <div
+                                        className="avatar-progress-fill"
+                                        style={{ width: `${avatarLoadProgressPercent}%` }}
+                                    />
+                                </div>
+                                <p className="avatar-progress-meta">{avatarLoadEstimateLabel}</p>
                             </div>
                         )}
                         {avatarPaused && avatarReady && (
@@ -847,7 +926,11 @@ function App() {
                         )}
                         {!avatarReady && !avatarLoading && (
                             <div className="avatar-placeholder">
-                                <p>{avatarIceServers.length === 0 ? "Waiting for ICE servers from session..." : "Click \"Start Avatar\" to begin video stream"}</p>
+                                <p>
+                                    {avatarIceServers.length === 0
+                                        ? "Waiting for ICE servers from session... You can still click \"Start Avatar\" to try direct negotiation."
+                                        : "Click \"Start Avatar\" to begin video stream"}
+                                </p>
                             </div>
                         )}
                     </div>

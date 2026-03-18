@@ -206,6 +206,31 @@ video.video-hidden-for-key {
   font-weight: 500;
 }
 
+.avatar-progress-track {
+  width: min(340px, 80%);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(30, 41, 59, 0.85);
+}
+
+.avatar-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0ea5e9 0%, #38bdf8 50%, #7dd3fc 100%);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.45);
+  transition: width 240ms ease;
+}
+
+.avatar-progress-meta {
+  margin-top: 0.65rem !important;
+  font-size: 0.95rem !important;
+  font-weight: 400 !important;
+  color: #bae6fd;
+}
+
 .loading-spinner {
   width: 48px;
   height: 48px;

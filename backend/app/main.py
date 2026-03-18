@@ -196,6 +196,9 @@ async def session_ws(websocket: WebSocket, session_id: str):
     emitter_task = asyncio.create_task(emitter())
 
     await websocket.send_json({"type": "session_ready", "session_id": session_id})
+    cached_session_updated = session.get_cached_session_updated_event()
+    if cached_session_updated:
+        await websocket.send_json({"type": "event", "payload": cached_session_updated})
 
     try:
         while True:

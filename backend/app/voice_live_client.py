@@ -109,6 +109,7 @@ class VoiceLiveSession:
         self._receive_task: Optional[asyncio.Task] = None
         self._avatar_future: Optional[asyncio.Future] = None
         self._connected_event = asyncio.Event()
+        self._latest_session_updated_event: Optional[Dict[str, Any]] = None
 
         endpoint = os.getenv("AZURE_VOICE_LIVE_ENDPOINT")
         model = os.getenv("VOICE_LIVE_MODEL")
@@ -365,6 +366,9 @@ class VoiceLiveSession:
     def remove_event_queue(self, queue: asyncio.Queue) -> None:
         self._listeners.discard(queue)
 
+    def get_cached_session_updated_event(self) -> Optional[Dict[str, Any]]:
+        return self._latest_session_updated_event
+
     async def _broadcast(self, event: Dict[str, Any]) -> None:
         if not self._listeners:
             return
@@ -493,6 +497,9 @@ class VoiceLiveSession:
                             self._avatar_future.set_result(decoded_sdp)
                     logger.info(f"[{self.session_id}] Avatar connecting")
                     await self._broadcast({"type": "avatar_connecting"})
+                elif event_type == "session.updated":
+                    self._latest_session_updated_event = event
+                    await self._broadcast({"type": "event", "payload": event})
                 elif event_type == "response.done":
                     await self._handle_response_done(event)
                 else:
