@@ -21,7 +21,6 @@ REQUIRED_ENV_VARS=(
     RESOURCE_GROUP
     CONTAINER_REGISTRY
     IMAGE_NAME
-    TAG
     CONTAINER_APP_NAME
     REGION
     AZURE_VOICE_LIVE_ENDPOINT
@@ -49,6 +48,14 @@ fi
 CONTAINER_REGISTRY_FQDN="${CONTAINER_REGISTRY}.azurecr.io"
 CONTAINER_APPS_ENV="${CONTAINER_APP_NAME}-env"
 VOICE_LIVE_ENDPOINT_HOST="$(printf '%s' "${AZURE_VOICE_LIVE_ENDPOINT}" | sed -E 's#^https?://##; s#/.*$##')"
+
+# Prefer immutable image tags. If TAG is empty or set to "latest", generate a unique tag.
+if [ -z "${TAG:-}" ] || [ "${TAG}" = "latest" ]; then
+    TAG_PREFIX="${TAG_PREFIX:-build}"
+    GIT_SHA="$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD 2>/dev/null || echo "nogit")"
+    TAG="${TAG_PREFIX}-$(date -u +%Y%m%d%H%M%S)-${GIT_SHA}"
+    echo "ℹ️  TAG was empty or 'latest'; generated immutable image tag: ${TAG}"
+fi
 
 ensure_role_assignment() {
     local principal_id="$1"
@@ -147,6 +154,13 @@ az acr login --name "${CONTAINER_REGISTRY}"
 
 echo "🔐 Pushing image to ACR..."
 docker push "${CONTAINER_REGISTRY_FQDN}/${IMAGE_NAME}:${TAG}"
+
+# Optionally keep a mutable alias for manual testing or backward compatibility.
+if [ "${PUSH_LATEST_ALIAS:-false}" = "true" ]; then
+    echo "🏷️  Also pushing mutable alias: ${IMAGE_NAME}:latest"
+    docker tag "${CONTAINER_REGISTRY_FQDN}/${IMAGE_NAME}:${TAG}" "${CONTAINER_REGISTRY_FQDN}/${IMAGE_NAME}:latest"
+    docker push "${CONTAINER_REGISTRY_FQDN}/${IMAGE_NAME}:latest"
+fi
 
 # ── 6. Create Container Apps environment (idempotent) ──
 echo "🌐 Ensuring Container Apps environment ${CONTAINER_APPS_ENV}..."
