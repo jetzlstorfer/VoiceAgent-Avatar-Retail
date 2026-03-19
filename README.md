@@ -407,10 +407,13 @@ Key settings:
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
 - If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech when `AZURE_VOICE_TYPE=azure-standard` (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
-- `AZURE_VOICE_TYPE` – Controls the audio source for the avatar's speech (defaults to `azure-standard`):
-  - `azure-standard` – Audio is synthesised by a standalone Azure Neural TTS voice defined by `AZURE_TTS_VOICE`. The video and audio are two separate streams.
-  - `azure-avatar` – Audio is sourced directly from the trained avatar model itself (same model used for the video stream). Voice name is derived from `AZURE_VOICE_AVATAR_CHARACTER`.
+- `AZURE_TTS_VOICE` – The neural TTS voice used for assistant speech (for example `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_VOICE_TYPE` – Voice mode (defaults to `azure-standard`):
+    - `azure-standard` – Uses standalone Azure Neural TTS (`session.voice` is sent).
+    - `azure-avatar` – In avatar mode, uses avatar-native voice by omitting `session.voice`.
+    - If avatar mode is off, `azure-avatar` falls back to `azure-standard`.
+    - Any other value falls back to `azure-standard`.
+    - If `AZURE_TTS_VOICE` is empty in `azure-standard`, the app picks a default voice based on `AZURE_VOICE_AVATAR_CHARACTER`.
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.
 - `logic_app_url_*` – Logic App webhook endpoints.

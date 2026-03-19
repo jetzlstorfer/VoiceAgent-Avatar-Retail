@@ -26,6 +26,13 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_VOICE_TYPES = {"azure-standard", "azure-custom", "azure-personal"}
+AVATAR_TO_STANDARD_VOICE = {
+    "lisa": "en-US-JennyNeural",
+    "james": "en-US-GuyNeural",
+    "michelle": "en-US-AvaNeural",
+}
+
 # Ensure .env from repo root and backend root are loaded when module is imported
 repo_env = Path(__file__).resolve().parents[2] / ".env"
 backend_env = Path(__file__).resolve().parents[1] / ".env"
@@ -118,7 +125,7 @@ class VoiceLiveSession:
             raise RuntimeError("AZURE_VOICE_LIVE_ENDPOINT and VOICE_LIVE_MODEL must be set")
         self._endpoint = endpoint
         self._model = model
-        self._api_version = os.getenv("AZURE_VOICE_LIVE_API_VERSION", "2025-05-01-preview")
+        self._api_version = os.getenv("AZURE_VOICE_LIVE_API_VERSION", "2025-10-01")
         self._api_key = os.getenv("AZURE_OPENAI_API_KEY")
         self._use_api_key = bool(self._api_key)
         scopes_raw = os.getenv(
@@ -137,6 +144,8 @@ class VoiceLiveSession:
         else:
             modalities = ["text", "audio"]
 
+        voice_config = self._build_voice_config()
+
         self._session_config = {
             "modalities": modalities,
             "input_audio_sampling_rate": 24000,
@@ -151,13 +160,16 @@ class VoiceLiveSession:
             "tool_choice": "auto",
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-            "voice": self._build_voice_config(),
             "input_audio_transcription": {"model": "whisper-1"},
         }
+        if voice_config is not None:
+            self._session_config["voice"] = voice_config
         if avatar_enabled:
             self._session_config["avatar"] = self._build_avatar_config()
             self._session_config["animation"] = {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]}
 
+        # Response modalities only support "text" and "audio" — avatar/animation
+        # are session-level settings, not response-level.
         self._response_config = {
             "modalities": ["text", "audio"],
         }
@@ -222,22 +234,96 @@ class VoiceLiveSession:
         close_code = getattr(self.ws, "close_code", None)
         return close_code is None
 
-    def _build_voice_config(self) -> Dict[str, Any]:
-        # When AZURE_VOICE_TYPE is "azure-avatar" the audio is sourced from the
-        # trained avatar model itself rather than a separate TTS stream.
-        # When set to "azure-standard" (the default) a standalone Azure Neural
-        # TTS voice is used and the voice name is taken from AZURE_TTS_VOICE.
-        voice_type = os.getenv("AZURE_VOICE_TYPE", "azure-standard")
-        if voice_type == "azure-avatar":
-            voice_name = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
-        else:
-            voice_name = os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural")
-        config: Dict[str, Any] = {
+    def _build_voice_config(self) -> Optional[Dict[str, Any]]:
+        # Voice Live API supports these voice types:
+        #   azure-standard  – Azure Neural TTS voice (e.g. en-US-JennyNeural)
+        #   azure-custom    – Custom voice, requires endpoint_id
+        #   azure-personal  – Personal voice / voice sync for avatar
+        #
+        # The API always requires a voice config (session.voice.id is
+        # mandatory).  For custom avatars with a built-in voice ("voice
+        # sync for avatar"), we query the avatar model for its voice data
+        # ID and use it as an azure-personal voice.
+        raw_voice_type = os.getenv("AZURE_VOICE_TYPE", "azure-standard").strip().lower()
+
+        # --- azure-avatar convenience alias ---
+        if raw_voice_type == "azure-avatar":
+            pv_name = os.getenv("AZURE_PERSONAL_VOICE_NAME", "").strip()
+            if pv_name:
+                pv_model = os.getenv("AZURE_PERSONAL_VOICE_MODEL", "DragonLatestNeural").strip()
+                logger.info("[%s] Voice config: type=azure-personal, name=%s, model=%s", self.session_id, pv_name, pv_model)
+                return {
+                    "type": "azure-personal",
+                    "name": pv_name,
+                    "model": pv_model,
+                    "temperature": 0.8,
+                }
+            # No personal voice configured — fall back to standard voice
+            voice_name = os.getenv("AZURE_TTS_VOICE", "en-US-AvaMultilingualNeural").strip()
+            logger.warning(
+                "[%s] No AZURE_PERSONAL_VOICE_NAME set for custom avatar. "
+                "Falling back to azure-standard voice '%s'.",
+                self.session_id, voice_name,
+            )
+            return {
+                "type": "azure-standard",
+                "name": voice_name,
+                "temperature": 0.8,
+            }
+
+        if raw_voice_type not in SUPPORTED_VOICE_TYPES:
+            logger.warning(
+                "[%s] Unsupported AZURE_VOICE_TYPE=%s; using azure-standard",
+                self.session_id, raw_voice_type,
+            )
+            raw_voice_type = "azure-standard"
+
+        # --- azure-personal ---
+        if raw_voice_type == "azure-personal":
+            pv_name = os.getenv("AZURE_PERSONAL_VOICE_NAME", "").strip()
+            if not pv_name:
+                pv_name = os.getenv("AZURE_TTS_VOICE", "").strip()
+            if not pv_name:
+                logger.error("[%s] azure-personal voice requires AZURE_PERSONAL_VOICE_NAME", self.session_id)
+                return None
+            pv_model = os.getenv("AZURE_PERSONAL_VOICE_MODEL", "DragonLatestNeural").strip()
+            logger.info("[%s] Voice config: type=azure-personal, name=%s, model=%s", self.session_id, pv_name, pv_model)
+            return {
+                "type": "azure-personal",
+                "name": pv_name,
+                "model": pv_model,
+                "temperature": 0.8,
+            }
+
+        # --- azure-custom ---
+        if raw_voice_type == "azure-custom":
+            endpoint_id = os.getenv("AZURE_VOICE_ENDPOINT_ID", "").strip()
+            voice_name = os.getenv("AZURE_TTS_VOICE", "").strip()
+            if not voice_name:
+                voice_name = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa").strip()
+            if not endpoint_id:
+                logger.warning("[%s] azure-custom voice without AZURE_VOICE_ENDPOINT_ID", self.session_id)
+            logger.info("[%s] Voice config: type=azure-custom, name=%s, endpoint_id=%s", self.session_id, voice_name, endpoint_id)
+            config: Dict[str, Any] = {
+                "type": "azure-custom",
+                "name": voice_name,
+                "endpoint_id": endpoint_id,
+                "temperature": 0.8,
+            }
+            return config
+
+        # --- azure-standard (default) ---
+        voice_name = os.getenv("AZURE_TTS_VOICE", "").strip()
+        if not voice_name:
+            avatar_character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa").strip().lower()
+            voice_name = AVATAR_TO_STANDARD_VOICE.get(avatar_character, "en-US-JennyNeural")
+
+        logger.info("[%s] Voice config: type=azure-standard, name=%s", self.session_id, voice_name)
+        return {
+            "type": "azure-standard",
             "name": voice_name,
-            "type": voice_type,
             "temperature": 0.8,
         }
-        return config
 
     def _build_avatar_config(self) -> Dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
@@ -293,7 +379,13 @@ class VoiceLiveSession:
                     raise RuntimeError("Authentication failed: no token scopes configured")
             logger.info("[%s] Connected to Azure Voice Live", self.session_id)
             self._receive_task = asyncio.create_task(self._receive_loop())
-            logger.info("[%s] Sending session.update with modalities: %s", self.session_id, self._session_config.get("modalities"))
+            logger.info(
+                "[%s] Sending session.update: modalities=%s, voice=%s, avatar=%s",
+                self.session_id,
+                self._session_config.get("modalities"),
+                self._session_config.get("voice", "<OMITTED>"),
+                bool(self._session_config.get("avatar")),
+            )
             await self._send("session.update", {"session": self._session_config}, allow_reconnect=False)
             self._connected_event.set()
 
@@ -466,7 +558,11 @@ class VoiceLiveSession:
                 elif event_type == "response.audio.delta":
                     delta = event.get("delta")
                     logger.info(f"[{self.session_id}] Received audio delta, length: {len(delta) if delta else 0}")
-                    await self._broadcast({"type": "assistant_audio_delta", "delta": delta})
+                    # In avatar mode, audio is delivered through the WebRTC
+                    # stream (which also drives lip-sync).  Only forward
+                    # websocket audio deltas for non-avatar sessions.
+                    if not self.avatar_enabled:
+                        await self._broadcast({"type": "assistant_audio_delta", "delta": delta})
                 elif event_type == "response.audio.done":
                     logger.info(f"[{self.session_id}] Audio response done")
                     await self._broadcast({"type": "assistant_audio_done", "payload": event})
@@ -512,6 +608,17 @@ class VoiceLiveSession:
                     await self._broadcast({"type": "avatar_connecting"})
                 elif event_type == "session.updated":
                     self._latest_session_updated_event = event
+                    session_data = event.get("session", {})
+                    avatar_data = session_data.get("avatar") or {}
+                    voice_data = session_data.get("voice")
+                    logger.info(
+                        "[%s] session.updated modalities=%s avatar.character=%s avatar.customized=%s voice=%s",
+                        self.session_id,
+                        session_data.get("modalities"),
+                        avatar_data.get("character"),
+                        avatar_data.get("customized"),
+                        voice_data,
+                    )
                     await self._broadcast({"type": "event", "payload": event})
                 elif event_type == "response.done":
                     await self._handle_response_done(event)

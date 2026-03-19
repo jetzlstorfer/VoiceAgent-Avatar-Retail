@@ -37,7 +37,7 @@ copy-frontend:
 	mkdir -p $(BACKEND_STATIC)
 	rsync -a --delete $(FRONTEND_DIST)/ $(BACKEND_STATIC)/
 
-run: install copy-frontend
+run: install build-frontend copy-frontend
 	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir $(BACKEND_DIR)
 
 run-copy: build-frontend copy-frontend

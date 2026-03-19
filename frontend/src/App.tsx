@@ -126,6 +126,7 @@ function App() {
     const [avatarIceServers, setAvatarIceServers] = useState<RTCIceServer[]>([]);
 
     const wsRef = useRef<WebSocket | null>(null);
+    const avatarEnabledRef = useRef(false);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const autoStartAvatarRef = useRef(false);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -139,6 +140,10 @@ function App() {
 
     const playbackCtxRef = useRef<AudioContext | null>(null);
     const playbackCursorRef = useRef<number>(0);
+
+    useEffect(() => {
+        avatarEnabledRef.current = avatarEnabled;
+    }, [avatarEnabled]);
 
     const ensurePlaybackContext = useCallback(() => {
         if (!playbackCtxRef.current) {
@@ -342,7 +347,10 @@ function App() {
                         break;
                     case "assistant_audio_delta":
                         if (typeof data.delta === "string") {
-                            schedulePlayback(data.delta);
+                            // In avatar mode audio arrives via WebRTC (with lip sync).
+                            if (!avatarEnabledRef.current) {
+                                schedulePlayback(data.delta);
+                            }
                         }
                         break;
                     case "assistant_transcript_delta":
@@ -901,7 +909,7 @@ function App() {
                             className={customBackgroundEnabled ? "video-hidden-for-key" : undefined}
                             autoPlay
                             playsInline
-                            muted={false}
+                            muted={true}
                             controls={false}
                         />
                         {customBackgroundEnabled && <canvas ref={compositeCanvasRef} className="avatar-composite-canvas" />}
