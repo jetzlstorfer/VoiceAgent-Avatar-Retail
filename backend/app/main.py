@@ -121,12 +121,16 @@ async def _ensure_session(session_id: str):
 
 class CreateSessionRequest(BaseModel):
     avatar_enabled: bool = False
+    language: str = "en"
 
 
 @app.post("/sessions", response_model=SessionResponse)
 async def create_session(request: CreateSessionRequest = CreateSessionRequest()) -> SessionResponse:
     try:
-        session = await session_manager.create_session(avatar_enabled=request.avatar_enabled)
+        session = await session_manager.create_session(
+            avatar_enabled=request.avatar_enabled,
+            language=request.language,
+        )
         return SessionResponse(session_id=session.session_id)
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Failed to create Voice Live session")

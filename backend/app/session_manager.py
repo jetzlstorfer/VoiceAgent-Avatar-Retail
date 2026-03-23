@@ -17,9 +17,9 @@ class SessionManager:
         self._sessions: Dict[str, VoiceLiveSession] = {}
         self._lock = asyncio.Lock()
 
-    async def create_session(self, avatar_enabled: bool = False) -> VoiceLiveSession:
+    async def create_session(self, avatar_enabled: bool = False, language: str = "en") -> VoiceLiveSession:
         session_id = str(uuid.uuid4())
-        session = VoiceLiveSession(session_id, avatar_enabled=avatar_enabled)
+        session = VoiceLiveSession(session_id, avatar_enabled=avatar_enabled, language=language)
         await session.connect()
         async with self._lock:
             self._sessions[session_id] = session

@@ -94,15 +94,22 @@ You have access to the following tools and knowledge. Use these to get context t
 Important confirmation requirements:
 **Empathize with the customer when you respond**
 **Remember that your persona is that of a man.**
+
+**LANGUAGE INSTRUCTIONS:**
+- Detect the language the customer is speaking and ALWAYS respond in the SAME language.
+- If the customer speaks German, respond entirely in German.
+- If the customer speaks English, respond entirely in English.
+- Do NOT mix languages in a single response.
 """
 
 
 class VoiceLiveSession:
     """Manage a single Voice Live realtime session and broadcast events to subscribers."""
 
-    def __init__(self, session_id: str, avatar_enabled: bool = False):
+    def __init__(self, session_id: str, avatar_enabled: bool = False, language: str = "en"):
         self.session_id = session_id
         self.avatar_enabled = avatar_enabled
+        self.language = language
         self.ws: Optional[WebSocketClientProtocol] = None
         self._listeners: Set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
@@ -162,9 +169,24 @@ class VoiceLiveSession:
             "modalities": ["text", "audio"],
         }
 
-    def _build_voice_config(self) -> Dict[str, Any]:
-        """Build voice config, preferring custom voice endpoint if configured."""
-        custom_endpoint_id = os.getenv("AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN", "").strip()
+    # Maps language codes to env var keys for custom voice endpoints and standard fallbacks
+    _VOICE_CONFIG_MAP: Dict[str, Dict[str, str]] = {
+        "en": {
+            "custom_endpoint_env": "AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN",
+            "standard_voice": "en-US-AndrewMultilingualNeural",
+        },
+        "de": {
+            "custom_endpoint_env": "AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE",
+            "standard_voice": "de-DE-ConradNeural",
+        },
+    }
+
+    def _build_voice_config(self, language: Optional[str] = None) -> Dict[str, Any]:
+        """Build voice config for the given language, using custom voice endpoint if configured."""
+        lang_key = (language or self.language).lower().split("-")[0]
+        config_entry = self._VOICE_CONFIG_MAP.get(lang_key, self._VOICE_CONFIG_MAP["en"])
+
+        custom_endpoint_id = os.getenv(config_entry["custom_endpoint_env"], "").strip()
         if custom_endpoint_id:
             voice_name = os.getenv("AZURE_TTS_VOICE", os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "custom-voice"))
             config: Dict[str, Any] = {
@@ -173,10 +195,10 @@ class VoiceLiveSession:
                 "endpoint_id": custom_endpoint_id,
                 "temperature": 0.8,
             }
-            logger.info("[%s] Using custom voice (endpoint_id=%s)", self.session_id, custom_endpoint_id)
+            logger.info("[%s] Using custom voice for '%s' (endpoint_id=%s)", self.session_id, lang_key, custom_endpoint_id)
             return config
-        standard_voice = os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural")
-        logger.info("[%s] Using standard voice (%s)", self.session_id, standard_voice)
+        standard_voice = config_entry["standard_voice"]
+        logger.info("[%s] Using standard voice for '%s' (%s)", self.session_id, lang_key, standard_voice)
         return {
             "name": standard_voice,
             "type": "azure-standard",

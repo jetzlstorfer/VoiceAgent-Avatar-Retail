@@ -111,6 +111,7 @@ function App() {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [micActive, setMicActive] = useState(false);
     const [avatarEnabled, setAvatarEnabled] = useState(true);
+    const [language, setLanguage] = useState("en");
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
@@ -414,11 +415,11 @@ function App() {
         [appendLog, schedulePlayback, teardownMic]
     );
 
-    const createSession = useCallback(async (withAvatar = false) => {
+    const createSession = useCallback(async (withAvatar = false, lang = "en") => {
         const response = await fetch(`${BACKEND_HTTP_BASE}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ avatar_enabled: withAvatar }),
+            body: JSON.stringify({ avatar_enabled: withAvatar, language: lang }),
         });
         if (!response.ok) {
             let errorDetail = "";
@@ -439,13 +440,13 @@ function App() {
         const { session_id } = await response.json();
         setSessionId(session_id);
         setAvatarEnabled(withAvatar);
-        appendLog(`Session created (${withAvatar ? "avatar" : "audio-only"}): ${session_id}`);
+        appendLog(`Session created (${withAvatar ? "avatar" : "audio-only"}, lang=${lang}): ${session_id}`);
         connectWebSocket(session_id);
         return session_id;
     }, [appendLog, connectWebSocket]);
 
     useEffect(() => {
-        createSession(true).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
+        createSession(true, language).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
     }, [appendLog, createSession]);
 
     const startMic = useCallback(async () => {
@@ -731,10 +732,30 @@ function App() {
         }
         // Create new session with the new mode
         try {
-            await createSession(newMode);
+            await createSession(newMode, language);
         } catch (err) {
             autoStartAvatarRef.current = false;
             appendLog(`Error switching mode: ${String(err)}`);
+        }
+    }, [avatarEnabled, teardownMic, teardownAvatar, createSession, appendLog, language]);
+
+    const handleLanguageChange = useCallback(async (newLang: string) => {
+        setLanguage(newLang);
+        // Tear down all existing connections before recreating session
+        teardownMic();
+        teardownAvatar();
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        setSessionId(null);
+        setAvatarIceServers([]);
+        autoStartAvatarRef.current = avatarEnabled;
+        try {
+            await createSession(avatarEnabled, newLang);
+        } catch (err) {
+            autoStartAvatarRef.current = false;
+            appendLog(`Error switching language: ${String(err)}`);
         }
     }, [avatarEnabled, teardownMic, teardownAvatar, createSession, appendLog]);
 
@@ -805,6 +826,17 @@ function App() {
             <section className="section">
                 <h2>Controls</h2>
                 <div className="controls">
+                    <label title="Select language for the avatar voice">
+                        🌐 Language:
+                        <select
+                            value={language}
+                            onChange={(e) => handleLanguageChange(e.target.value)}
+                            title="Switch avatar language (recreates session)"
+                        >
+                            <option value="en">English</option>
+                            <option value="de">Deutsch</option>
+                        </select>
+                    </label>
                     <button 
                         onClick={() => window.location.reload()} 
                         className="refresh-button"
