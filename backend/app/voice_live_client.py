@@ -151,11 +151,7 @@ class VoiceLiveSession:
             "tool_choice": "auto",
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-            "voice": {
-                "name": os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural"),
-                "type": "azure-standard",
-                "temperature": 0.8,
-            },
+            "voice": self._build_voice_config(),
             "input_audio_transcription": {"model": "whisper-1"},
         }
         if avatar_enabled:
@@ -164,6 +160,27 @@ class VoiceLiveSession:
 
         self._response_config = {
             "modalities": ["text", "audio"],
+        }
+
+    def _build_voice_config(self) -> Dict[str, Any]:
+        """Build voice config, preferring custom voice endpoint if configured."""
+        custom_endpoint_id = os.getenv("AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN", "").strip()
+        if custom_endpoint_id:
+            voice_name = os.getenv("AZURE_TTS_VOICE", os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "custom-voice"))
+            config: Dict[str, Any] = {
+                "name": voice_name,
+                "type": "azure-custom",
+                "endpoint_id": custom_endpoint_id,
+                "temperature": 0.8,
+            }
+            logger.info("[%s] Using custom voice (endpoint_id=%s)", self.session_id, custom_endpoint_id)
+            return config
+        standard_voice = os.getenv("AZURE_TTS_VOICE", "en-US-JennyNeural")
+        logger.info("[%s] Using standard voice (%s)", self.session_id, standard_voice)
+        return {
+            "name": standard_voice,
+            "type": "azure-standard",
+            "temperature": 0.8,
         }
 
     def _ws_is_open(self) -> bool:

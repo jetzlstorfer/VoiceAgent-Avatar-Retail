@@ -110,7 +110,7 @@ function App() {
 
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [micActive, setMicActive] = useState(false);
-    const [avatarEnabled, setAvatarEnabled] = useState(false);
+    const [avatarEnabled, setAvatarEnabled] = useState(true);
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
@@ -127,7 +127,7 @@ function App() {
 
     const wsRef = useRef<WebSocket | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
-    const autoStartAvatarRef = useRef(false);
+    const autoStartAvatarRef = useRef(true);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const compositeRafRef = useRef<number | null>(null);
@@ -445,7 +445,7 @@ function App() {
     }, [appendLog, connectWebSocket]);
 
     useEffect(() => {
-        createSession(false).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
+        createSession(true).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
     }, [appendLog, createSession]);
 
     const startMic = useCallback(async () => {
