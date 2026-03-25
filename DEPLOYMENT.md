@@ -231,6 +231,10 @@ azd env get-value AZURE_CONTAINER_APP_URL
 # Test the health endpoint
 curl $(azd env get-value AZURE_CONTAINER_APP_URL)/health
 
+# Test liveness and readiness probes (useful for Kubernetes/container health checks)
+curl $(azd env get-value AZURE_CONTAINER_APP_URL)/health/live
+curl $(azd env get-value AZURE_CONTAINER_APP_URL)/health/ready
+
 # View all deployed resource URLs
 azd env get-values
 ```

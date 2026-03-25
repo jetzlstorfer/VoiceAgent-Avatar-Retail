@@ -249,7 +249,9 @@ This design provides the best of both worlds:
 1. The app requests a new session from the backend and opens a WebSocket bridge.
 2. Clicking **Start Microphone** captures audio, downsamples to 24 kHz float frames, and pushes base64 chunks to the backend.
 3. Assistant audio deltas returned by the backend are scheduled in a browser `AudioContext` for playback.
-4. Clicking **Start Avatar** creates a `RTCPeerConnection`, sends the SDP offer to `/avatar-offer`, and sets the returned answer. The avatar video and audio render through the `<video>` element.
+4. Clicking **Start Avatar** creates a `RTCPeerConnection`, sends the SDP offer to `/avatar-offer`, and sets the returned answer. The avatar video and audio render through the `<video>` element. A sound effect plays when the avatar connection succeeds.
+5. If the Azure Speech avatar service is at capacity or unavailable, the UI displays an error message with a **Retry** option so the user can attempt the connection again without reloading the page.
+6. A **language selector** in the controls lets users switch between English (`en`) and German (`de`). Changing the language tears down and recreates the session, using the appropriate TTS voice configured by `AZURE_TTS_VOICE` or `AZURE_TTS_VOICE_DE`.
 
 
 
@@ -407,7 +409,13 @@ Key settings:
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
 - If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech in English (e.g. `en-US-AndrewMultilingualNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE_DE` – The neural TTS voice used for the assistant's speech in German (e.g. `de-DE-ConradNeural`). Used when the user selects German via the language dropdown in the UI.
+- Optional `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` – Deployment/endpoint ID (GUID) for a custom neural voice in English. When set, overrides `AZURE_TTS_VOICE` for English sessions. The custom voice must be deployed in the same region as `AZURE_VOICE_LIVE_ENDPOINT`.
+- Optional `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE` – Deployment/endpoint ID (GUID) for a custom neural voice in German. When set, overrides `AZURE_TTS_VOICE_DE` for German sessions.
+- `ALLOWED_ORIGINS` – Comma-separated list of allowed CORS origins for the backend (e.g. `https://myapp.example.com,https://staging.example.com`). Leave empty to allow all origins (`*`) in development. Required for production deployments where the frontend is served from a different hostname.
+- `SESSION_TTL_SECONDS` – How long (in seconds) a session can remain idle before the backend automatically reclaims it. Defaults to `1800` (30 minutes). The backend runs a background reaper that checks for idle sessions at the interval set by `SESSION_REAPER_INTERVAL_SECONDS`.
+- `SESSION_REAPER_INTERVAL_SECONDS` – How often (in seconds) the idle session reaper runs. Defaults to `60`.
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.
 - `logic_app_url_*` – Logic App webhook endpoints.
@@ -465,7 +473,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 Make sure that frontend is copied to `backend/static` so it can be served by FastAPI. The backend serves the frontend at `http://localhost:8000` and also acts as a WebSocket proxy for API calls from the frontend to Azure Voice Live API.
 
 The backend exposes:
-- `POST /sessions` – Create a Voice Live session.
+- `GET /health` – Basic health check. Returns `{"status": "healthy", "service": "voice-live-avatar-backend"}`.
+- `GET /health/live` – Liveness probe. Returns `{"status": "alive"}`. Use this for container/Kubernetes liveness checks.
+- `GET /health/ready` – Readiness probe. Returns `{"status": "ready", "active_sessions": N}` where `N` is the current number of active sessions. Use this for container/Kubernetes readiness checks.
+- `POST /sessions` – Create a Voice Live session. Accepts optional `avatar_enabled` (bool) and `language` (`"en"` or `"de"`) in the request body.
 - `POST /sessions/{id}/avatar-offer` – Exchange WebRTC SDP for avatar video.
 - `POST /sessions/{id}/text` – Send a text turn to the assistant.
 - `POST /sessions/{id}/commit-audio` – Force audio commit (mostly for manual control).
