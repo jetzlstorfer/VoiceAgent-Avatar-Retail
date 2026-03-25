@@ -151,6 +151,9 @@ function App() {
     const [avatarIceServers, setAvatarIceServers] = useState<RTCIceServer[]>([]);
 
     const wsRef = useRef<WebSocket | null>(null);
+    const wsReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const wsReconnectAttemptRef = useRef(0);
+    const wsSessionIdRef = useRef<string | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const autoStartAvatarRef = useRef(true);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -347,17 +350,39 @@ function App() {
 
     const connectWebSocket = useCallback(
         (id: string) => {
+            if (wsReconnectTimerRef.current !== null) {
+                clearTimeout(wsReconnectTimerRef.current);
+                wsReconnectTimerRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
             }
+            wsSessionIdRef.current = id;
             const ws = new WebSocket(`${BACKEND_WS_BASE}/ws/sessions/${id}`);
             wsRef.current = ws;
 
-            ws.onopen = () => appendLog("WebSocket connected");
+            ws.onopen = () => {
+                wsReconnectAttemptRef.current = 0;
+                appendLog("WebSocket connected");
+            };
             ws.onclose = () => {
                 appendLog("WebSocket closed");
                 teardownMic();
+                // Attempt bounded exponential backoff reconnect
+                const attempt = wsReconnectAttemptRef.current;
+                const MAX_RECONNECT_ATTEMPTS = 5;
+                if (attempt < MAX_RECONNECT_ATTEMPTS && wsSessionIdRef.current === id) {
+                    const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
+                    appendLog(`Reconnecting in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})...`);
+                    wsReconnectAttemptRef.current = attempt + 1;
+                    wsReconnectTimerRef.current = setTimeout(() => {
+                        wsReconnectTimerRef.current = null;
+                        if (wsSessionIdRef.current === id) {
+                            connectWebSocket(id);
+                        }
+                    }, delay);
+                }
             };
             ws.onerror = (event: Event) => appendLog(`WebSocket error: ${event.type}`);
 
@@ -492,6 +517,27 @@ function App() {
         createSession(true, language).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
     }, [appendLog, createSession]);
 
+    // Best-effort session close signal on page unload
+    useEffect(() => {
+        const closeSession = () => {
+            // Cancel any pending reconnect so onclose doesn't re-fire
+            if (wsReconnectTimerRef.current !== null) {
+                clearTimeout(wsReconnectTimerRef.current);
+                wsReconnectTimerRef.current = null;
+            }
+            wsSessionIdRef.current = null;
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.close();
+            }
+        };
+        window.addEventListener("pagehide", closeSession);
+        window.addEventListener("beforeunload", closeSession);
+        return () => {
+            window.removeEventListener("pagehide", closeSession);
+            window.removeEventListener("beforeunload", closeSession);
+        };
+    }, []);
+
     const startMic = useCallback(async () => {
         if (!wsRef.current) {
             appendLog("WebSocket not ready");
@@ -580,6 +626,7 @@ function App() {
         if (!text) {
             return;
         }
+        setUserTranscript(text);
         const response = await fetch(`${BACKEND_HTTP_BASE}/sessions/${sessionId}/text`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -772,6 +819,12 @@ function App() {
         if (pcRef.current) {
             teardownAvatar();
         }
+        // Prevent reconnect to old session
+        wsSessionIdRef.current = null;
+        if (wsReconnectTimerRef.current !== null) {
+            clearTimeout(wsReconnectTimerRef.current);
+            wsReconnectTimerRef.current = null;
+        }
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;
@@ -790,6 +843,12 @@ function App() {
         // Tear down all existing connections before recreating session
         teardownMic();
         teardownAvatar();
+        // Prevent reconnect to old session
+        wsSessionIdRef.current = null;
+        if (wsReconnectTimerRef.current !== null) {
+            clearTimeout(wsReconnectTimerRef.current);
+            wsReconnectTimerRef.current = null;
+        }
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;

@@ -245,11 +245,8 @@ class VoiceLiveSession:
         return close_code is None
 
     async def _ensure_connection(self) -> None:
-        if self._ws_is_open():
-            return
-        await self.connect()
         if not self._ws_is_open():
-            raise RuntimeError("Session websocket is not connected")
+            await self.connect()
 
     def _build_avatar_config(self) -> Dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")

@@ -85,20 +85,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # pylint: disab
     try:
         # Startup: warm up the ecom API
         await warmup_ecom_api()
+        session_manager.start_reaper()
         yield
     finally:
-        # ensure all sessions are cleaned up
+        # stop reaper and ensure all sessions are cleaned up
+        session_manager.stop_reaper()
         remaining = await session_manager.list_session_ids()
         await asyncio.gather(*[session_manager.remove_session(session_id) for session_id in remaining])
 
 
 app = FastAPI(title="Azure Voice Live Avatar Backend", lifespan=lifespan)
+
+_allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()] if _allowed_origins_raw.strip() else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=_allowed_origins != ["*"],
 )
 
 # Mount static files (frontend build) when in production
@@ -110,6 +115,17 @@ if static_dir.exists():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "voice-live-avatar-backend"}
+
+
+@app.get("/health/live")
+async def liveness():
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+async def readiness():
+    active = await session_manager.active_session_count()
+    return {"status": "ready", "active_sessions": active}
 
 
 async def _ensure_session(session_id: str):
