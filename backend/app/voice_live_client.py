@@ -158,9 +158,11 @@ class VoiceLiveSession:
             "tool_choice": "auto",
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-            "voice": self._build_voice_config(),
             "input_audio_transcription": {"model": "whisper-1"},
         }
+        voice_config = self._build_voice_config()
+        if voice_config is not None:
+            self._session_config["voice"] = voice_config
         if avatar_enabled:
             self._session_config["avatar"] = self._build_avatar_config()
             self._session_config["animation"] = {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]}
@@ -181,24 +183,61 @@ class VoiceLiveSession:
         },
     }
 
-    def _build_voice_config(self, language: Optional[str] = None) -> Dict[str, Any]:
-        """Build voice config for the given language, using custom voice endpoint if configured."""
+    def _build_voice_config(self, language: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Build voice config based on AZURE_VOICE_SOURCE.
+
+        The avatar is a visual delivery channel (WebRTC) — a TTS voice must
+        still be configured so the API can synthesise speech.  When voice
+        source is ``avatar`` we auto-detect the best available voice (custom
+        endpoint → standard fallback), same as ``auto``.
+        """
+        voice_source = os.getenv("AZURE_VOICE_SOURCE", "auto").lower().strip()
         lang_key = (language or self.language).lower().split("-")[0]
         config_entry = self._VOICE_CONFIG_MAP.get(lang_key, self._VOICE_CONFIG_MAP["en"])
 
-        custom_endpoint_id = os.getenv(config_entry["custom_endpoint_env"], "").strip()
-        if custom_endpoint_id:
-            voice_name = os.getenv("AZURE_TTS_VOICE", os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "custom-voice"))
-            config: Dict[str, Any] = {
+        if voice_source == "avatar":
+            # Avatar delivers audio via WebRTC but still needs a TTS voice.
+            # Fall through to auto-detection.
+            logger.info("[%s] Voice source 'avatar' – auto-detecting TTS voice for avatar speech synthesis", self.session_id)
+            voice_source = "auto"
+
+        if voice_source == "custom":
+            custom_endpoint_id = os.getenv(config_entry["custom_endpoint_env"], "").strip()
+            if not custom_endpoint_id:
+                raise RuntimeError(
+                    f"AZURE_VOICE_SOURCE is 'custom' but {config_entry['custom_endpoint_env']} is not set"
+                )
+            voice_name = os.getenv("AZURE_TTS_VOICE", "custom-voice")
+            logger.info("[%s] Voice source 'custom' for '%s' (endpoint_id=%s)", self.session_id, lang_key, custom_endpoint_id)
+            return {
                 "name": voice_name,
                 "type": "azure-custom",
                 "endpoint_id": custom_endpoint_id,
                 "temperature": 0.8,
             }
-            logger.info("[%s] Using custom voice for '%s' (endpoint_id=%s)", self.session_id, lang_key, custom_endpoint_id)
-            return config
+
+        if voice_source == "standard":
+            standard_voice = os.getenv("AZURE_TTS_VOICE", config_entry["standard_voice"])
+            logger.info("[%s] Voice source 'standard' for '%s' (%s)", self.session_id, lang_key, standard_voice)
+            return {
+                "name": standard_voice,
+                "type": "azure-standard",
+                "temperature": 0.8,
+            }
+
+        # voice_source == "auto" (default) – custom if endpoint configured, else standard
+        custom_endpoint_id = os.getenv(config_entry["custom_endpoint_env"], "").strip()
+        if custom_endpoint_id:
+            voice_name = os.getenv("AZURE_TTS_VOICE", os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "custom-voice"))
+            logger.info("[%s] Auto-detected custom voice for '%s' (endpoint_id=%s)", self.session_id, lang_key, custom_endpoint_id)
+            return {
+                "name": voice_name,
+                "type": "azure-custom",
+                "endpoint_id": custom_endpoint_id,
+                "temperature": 0.8,
+            }
         standard_voice = config_entry["standard_voice"]
-        logger.info("[%s] Using standard voice for '%s' (%s)", self.session_id, lang_key, standard_voice)
+        logger.info("[%s] Auto-detected standard voice for '%s' (%s)", self.session_id, lang_key, standard_voice)
         return {
             "name": standard_voice,
             "type": "azure-standard",

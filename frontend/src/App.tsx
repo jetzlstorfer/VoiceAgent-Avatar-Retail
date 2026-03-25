@@ -160,6 +160,7 @@ function App() {
     const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const compositeRafRef = useRef<number | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+    const avatarReadyRef = useRef(false);
 
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -395,7 +396,7 @@ function App() {
                         }
                         break;
                     case "assistant_audio_delta":
-                        if (typeof data.delta === "string") {
+                        if (typeof data.delta === "string" && !avatarReadyRef.current) {
                             schedulePlayback(data.delta);
                         }
                         break;
@@ -738,6 +739,7 @@ function App() {
             const { sdp } = await response.json();
             await pc.setRemoteDescription({ type: "answer", sdp });
             setAvatarReady(true);
+            avatarReadyRef.current = true;
             avatarConnected = true;
             appendLog("Avatar connected");
             playTadaSound();
@@ -805,6 +807,7 @@ function App() {
         }
         setAvatarLoading(false);
         setAvatarReady(false);
+        avatarReadyRef.current = false;
         setAvatarPaused(false);
         setAvatarLoadStartedAt(null);
         setAvatarLoadElapsedMs(0);
