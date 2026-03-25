@@ -267,6 +267,44 @@ video.video-hidden-for-key {
   text-align: center;
 }
 
+.avatar-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.avatar-error-icon {
+  font-size: 2rem;
+}
+
+.avatar-error p {
+  margin: 0;
+  color: #fca5a5;
+  font-style: normal;
+  font-weight: 500;
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+.avatar-error button {
+  margin-top: 0.25rem;
+  padding: 0.5rem 1.25rem;
+  background: rgba(251, 146, 60, 0.2);
+  border: 1px solid #fb923c;
+  border-radius: 8px;
+  color: #fdba74;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.avatar-error button:hover {
+  background: rgba(251, 146, 60, 0.35);
+}
+
 .log-pane {
   background: rgba(15, 23, 42, 0.8);
   border-radius: 12px;

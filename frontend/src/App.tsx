@@ -94,6 +94,29 @@ function pcm16Base64ToFloat32(b64: string): Float32Array<ArrayBuffer> {
     return result;
 }
 
+function playTadaSound() {
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+    const notes = [
+        { freq: 523.25, start: 0, dur: 0.12 },
+        { freq: 659.25, start: 0.12, dur: 0.12 },
+        { freq: 783.99, start: 0.24, dur: 0.12 },
+        { freq: 1046.5, start: 0.36, dur: 0.35 },
+    ];
+    notes.forEach(({ freq, start, dur }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.25, now + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur);
+    });
+    setTimeout(() => ctx.close(), 2000);
+}
+
 function useLog(): [LogEntry[], (message: string) => void] {
     const [entries, setEntries] = useState<LogEntry[]>([]);
     const append = useCallback((text: string) => {
@@ -115,6 +138,7 @@ function App() {
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
+    const [avatarError, setAvatarError] = useState<string | null>(null);
     const [avatarLoadStartedAt, setAvatarLoadStartedAt] = useState<number | null>(null);
     const [avatarLoadElapsedMs, setAvatarLoadElapsedMs] = useState(0);
     const [avatarLoadAvgMs, setAvatarLoadAvgMs] = useState(DEFAULT_AVATAR_LOAD_AVG_MS);
@@ -323,6 +347,10 @@ function App() {
 
     const connectWebSocket = useCallback(
         (id: string) => {
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
             const ws = new WebSocket(`${BACKEND_WS_BASE}/ws/sessions/${id}`);
             wsRef.current = ws;
 
@@ -364,9 +392,24 @@ function App() {
                     case "function_call_completed":
                         appendLog(`Function call completed: ${data.name ?? "unknown"}`);
                         break;
-                    case "error":
+                    case "error": {
                         appendLog(`Server error: ${JSON.stringify(data.payload)}`);
+                        const errPayload = data.payload as Record<string, any> | undefined;
+                        const errCode = errPayload?.error?.code as string | undefined;
+                        const errMsg = errPayload?.error?.message as string | undefined;
+                        if (
+                            errCode === "avatar_service_resource_exhausted" ||
+                            (errMsg && /capacity exceeded|too many concurrent avatar/i.test(errMsg))
+                        ) {
+                            setAvatarError(
+                                "Avatar service capacity exceeded. Too many concurrent avatar sessions are running. " +
+                                "Please wait a moment and try again."
+                            );
+                            setAvatarLoading(false);
+                            setAvatarLoadStartedAt(null);
+                        }
                         break;
+                    }
                     case "event": {
                         const payload = data.payload as Record<string, any> | undefined;
                         if (payload?.type === "session.updated") {
@@ -563,6 +606,7 @@ function App() {
         setAvatarLoading(true);
         setAvatarLoadStartedAt(avatarLoadStartedAtMs);
         setAvatarLoadElapsedMs(0);
+        setAvatarError(null);
         appendLog("Initializing avatar connection...");
 
         try {
@@ -576,22 +620,21 @@ function App() {
             pc.addTransceiver("video", { direction: "recvonly" });
 
                 pc.ontrack = (event) => {
-                const [stream] = event.streams;
-                if (!stream) {
-                    return;
-                }
-
                 if (event.track.kind === "video" && videoRef.current) {
-                    videoRef.current.srcObject = stream;
+                    const videoStream = new MediaStream([event.track]);
+                    videoRef.current.srcObject = videoStream;
                     videoRef.current
                         .play()
-                        .catch(() => {
-                            /* ignore auto-play rejection; user interaction already occurred */
+                        .catch((err) => {
+                            appendLog(`Video play warning: ${String(err)}`);
                         });
                     appendLog("Avatar video track received");
                 }
 
                 if (event.track.kind === "audio") {
+                    // Use a dedicated MediaStream with only the audio track
+                    // to avoid conflicts with the video element.
+                    const audioStream = new MediaStream([event.track]);
                     let audioEl = remoteAudioRef.current;
                     if (!audioEl) {
                         audioEl = document.createElement("audio");
@@ -599,12 +642,14 @@ function App() {
                         audioEl.controls = false;
                         audioEl.style.display = "none";
                         audioEl.setAttribute("playsinline", "true");
-                        audioEl.muted = false;
                         document.body.appendChild(audioEl);
                         remoteAudioRef.current = audioEl;
                     }
-                    audioEl.srcObject = stream;
-                    audioEl.play().catch(() => undefined);
+                    audioEl.srcObject = audioStream;
+                    audioEl.muted = false;
+                    audioEl.play().catch((err) => {
+                        appendLog(`Audio play warning: ${String(err)}`);
+                    });
                     appendLog("Avatar audio track received");
                 }
             };
@@ -648,6 +693,7 @@ function App() {
             setAvatarReady(true);
             avatarConnected = true;
             appendLog("Avatar connected");
+            playTadaSound();
         } catch (error) {
             appendLog(`Avatar connection error: ${String(error)}`);
             if (pcRef.current) {
@@ -933,7 +979,7 @@ function App() {
                             className={customBackgroundEnabled ? "video-hidden-for-key" : undefined}
                             autoPlay
                             playsInline
-                            muted={false}
+                            muted
                             controls={false}
                         />
                         {customBackgroundEnabled && <canvas ref={compositeCanvasRef} className="avatar-composite-canvas" />}
@@ -958,11 +1004,21 @@ function App() {
                         )}
                         {!avatarReady && !avatarLoading && (
                             <div className="avatar-placeholder">
-                                <p>
-                                    {avatarIceServers.length === 0
-                                        ? "Waiting for ICE servers from session... You can still click \"Start Avatar\" to try direct negotiation."
-                                        : "Click \"Start Avatar\" to begin video stream"}
-                                </p>
+                                {avatarError ? (
+                                    <div className="avatar-error">
+                                        <span className="avatar-error-icon">⚠️</span>
+                                        <p>{avatarError}</p>
+                                        <button onClick={startAvatar} disabled={!sessionId}>
+                                            Retry Avatar
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p>
+                                        {avatarIceServers.length === 0
+                                            ? "Waiting for ICE servers from session... You can still click \"Start Avatar\" to try direct negotiation."
+                                            : "Click \"Start Avatar\" to begin video stream"}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>

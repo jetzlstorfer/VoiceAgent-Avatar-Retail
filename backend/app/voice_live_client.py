@@ -250,20 +250,6 @@ class VoiceLiveSession:
         await self.connect()
         if not self._ws_is_open():
             raise RuntimeError("Session websocket is not connected")
-            return False
-        open_attr = getattr(self.ws, "open", None)
-        if isinstance(open_attr, bool):
-            return open_attr
-        closed_attr = getattr(self.ws, "closed", None)
-        if isinstance(closed_attr, bool):
-            return not closed_attr
-        if callable(closed_attr):  # type: ignore[call-overload]
-            try:
-                return not closed_attr()
-            except TypeError:
-                pass
-        close_code = getattr(self.ws, "close_code", None)
-        return close_code is None
 
     def _build_avatar_config(self) -> Dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
@@ -293,7 +279,8 @@ class VoiceLiveSession:
             headers = {"x-ms-client-request-id": str(uuid.uuid4())}
             if self._use_api_key:
                 ws_url = self._build_ws_url()
-                headers["api-key"] = self._api_key  # Azure OpenAI key
+                headers["api-key"] = self._api_key
+                headers["Ocp-Apim-Subscription-Key"] = self._api_key
                 self.ws = await websockets.connect(ws_url, additional_headers=headers)
             else:
                 last_error: Optional[Exception] = None
@@ -567,6 +554,7 @@ class VoiceLiveSession:
         arguments = json.loads(first_item.get("arguments", "{}"))
         call_id = first_item.get("call_id")
         logger.info("[%s] Function call requested: %s", self.session_id, function_name)
+
         func = AVAILABLE_FUNCTIONS.get(function_name)
         if not func:
             logger.error("Function %s is not registered", function_name)

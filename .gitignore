@@ -18,3 +18,7 @@ Thumbs.db
 
 # custom images
 blum*.jpg
+
+# Built frontend served by backend — keep folder, ignore contents
+backend/static/*
+!backend/static/.gitkeep
