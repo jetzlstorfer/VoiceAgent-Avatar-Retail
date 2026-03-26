@@ -407,7 +407,26 @@ Key settings:
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
 - If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+
+#### Voice Configuration
+
+- `AZURE_VOICE_SOURCE` – Controls which TTS voice is used for the assistant's speech output. Accepted values:
+  - `auto` (default) – Uses a custom neural voice if `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` (or `_DE`) is configured, otherwise falls back to the standard Azure voice.
+  - `custom` – Always use a custom neural voice. Requires the matching `AZURE_CUSTOM_VOICE_ENDPOINT_ID_*` to be set.
+  - `standard` – Always use the standard Azure TTS voice defined in `AZURE_TTS_VOICE`.
+  - `avatar` – Audio is delivered via the avatar WebRTC channel; TTS voice is auto-detected the same way as `auto`.
+- `AZURE_TTS_VOICE` – Standard Azure neural TTS voice for English (e.g. `en-US-AndrewMultilingualNeural`). Browse all voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE_DE` – Standard Azure neural TTS voice used for German responses (e.g. `de-DE-ConradNeural`).
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` – Deployment/endpoint GUID for a custom neural voice in English. When set (and `AZURE_VOICE_SOURCE` is `auto` or `custom`), the custom voice is used instead of the standard voice.
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE` – Same as above for German. The voice must be deployed in the same region as `AZURE_VOICE_LIVE_ENDPOINT`.
+
+#### Session Management
+
+- `SESSION_TTL_SECONDS` – Idle session timeout in seconds (default `1800`, i.e. 30 minutes). Sessions that receive no activity for this duration are automatically reaped. The reaper runs every 60 seconds by default (configurable via `SESSION_REAPER_INTERVAL_SECONDS`).
+- `ALLOWED_ORIGINS` – Comma-separated list of allowed CORS origins (e.g. `https://myapp.example.com,https://staging.example.com`). Leave empty to allow all origins (`*`) — suitable for development only.
+
+#### Other Settings
+
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
 - `ai_search_*` – Azure AI Search connection settings.
 - `logic_app_url_*` – Logic App webhook endpoints.
@@ -465,6 +484,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 Make sure that frontend is copied to `backend/static` so it can be served by FastAPI. The backend serves the frontend at `http://localhost:8000` and also acts as a WebSocket proxy for API calls from the frontend to Azure Voice Live API.
 
 The backend exposes:
+- `GET /health` – Basic health check; returns `{"status": "healthy"}`.
+- `GET /health/live` – Liveness probe; returns `{"status": "alive"}`. Suitable for container liveness checks.
+- `GET /health/ready` – Readiness probe; returns `{"status": "ready", "active_sessions": N}`. Reports the current active session count.
 - `POST /sessions` – Create a Voice Live session.
 - `POST /sessions/{id}/avatar-offer` – Exchange WebRTC SDP for avatar video.
 - `POST /sessions/{id}/text` – Send a text turn to the assistant.
@@ -897,6 +919,7 @@ python test_avatar_characters.py
 
 #### Common Issues and Solutions
 - **`avatar_verification_failed`**: Character doesn't exist in your Speech resource/region
+- **Avatar service capacity error**: When the Azure Speech avatar service is at capacity, the UI displays an error message with a retry option. Wait a few minutes and try again — the service should become available as capacity frees up.
 - **SDP timeout**: Check that `AZURE_VOICE_AVATAR_ENABLED=true` and SDP payload is base64 JSON
 - **Silent video**: Confirm ICE servers are received and AudioContext is not suspended
 - **Connection failures**: Verify TURN/STUN servers for NAT traversal
