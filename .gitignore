@@ -22,3 +22,5 @@ blum*.jpg
 # Built frontend served by backend — keep folder, ignore contents
 backend/static/*
 !backend/static/.gitkeep
+
+REPO_IMPROVEMENT_INSIGHTS.md

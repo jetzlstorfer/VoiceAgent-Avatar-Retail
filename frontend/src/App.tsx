@@ -128,7 +128,7 @@ function useLog(): [LogEntry[], (message: string) => void] {
 function App() {
     // Set the document title when the component mounts
     useEffect(() => {
-        document.title = "Contoso Retail - Azure Voice Live Avatar Agent";
+        document.title = "Blum - Azure Voice Live Avatar Agent";
     }, []);
 
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -928,7 +928,7 @@ function App() {
 
     return (
         <main>
-            <h1>Contoso Retail - Azure Voice Live Agent</h1>
+            <h1>Blum - Azure Voice Live Agent</h1>
             <p>Stream audio to Azure Voice Live and receive tool-calling responses{avatarEnabled ? " with avatar video" : " (audio-only mode)"}.</p>
 
             <section className="section">

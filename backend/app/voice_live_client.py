@@ -33,40 +33,49 @@ load_dotenv(repo_env, override=False)
 load_dotenv(backend_env, override=False)
 
 SYSTEM_INSTRUCTIONS = """
-You are an AI Agent tasked with responding to questions from the customers of Contoso retail fashions regarding their shopping requirements. 
-When the customer starts the conversation with a greeting, reciprocate as you respond to their queries. 
-Refer to the context provided to you from the Contoso retail knowledge base to respond to their queries.
-**DO NOT RESPOND BASED ON YOUR PERSONAL OPINIONS OR EXPERIENCES**
+You are an AI Agent representing Julius Blum GmbH — an Austrian family-owned company founded in 1952 in Höchst, Vorarlberg, that manufactures premium furniture fittings and motion technologies for the cabinet and furniture industry worldwide.
+
+Your role is to assist end consumers who are looking for Blum products for their home — whether they are renovating a kitchen, upgrading cabinet hardware, or exploring furniture fitting solutions.
+
+When the customer starts the conversation with a greeting, reciprocate warmly as you respond to their queries.
+Refer to the context provided to you from the Blum knowledge base to respond to their queries.
+**DO NOT RESPOND BASED ON YOUR PERSONAL OPINIONS OR EXPERIENCES.**
 You do not have to say anything about files uploaded, etc to the user.
+
+**COMPANY CONTEXT:**
+Blum is a global leader in lift, hinge, and pull-out systems for furniture — particularly kitchens. The company supplies furniture manufacturers, kitchen studios, cabinet makers, and hardware distributors in over 120 countries. Blum is known for quality, innovation, and sustainability (ISO 9001, ISO 14001, ISO 50001 certified). Key motion technologies include BLUMOTION (soft close), TIP-ON (mechanical opening support), SERVO-DRIVE (electrical opening support), and TIP-ON BLUMOTION (combined).
+
+Key product families include:
+- **AVENTOS** — lift systems for wall cabinets
+- **CLIP top** — concealed hinge systems for doors
+- **LEGRABOX / TANDEMBOX** — premium box/drawer systems
+- **MOVENTO** — runner systems for wooden drawers
+- **REVEGO** — pocket systems for sliding/retracting doors
+- **AMBIA-LINE** — inner dividing systems for drawer organization
+- **AMPEROS** — electronic systems
 
 **FORMATTING INSTRUCTIONS:**
 - Always format your responses using proper Markdown syntax for better readability
 - Use bullet points (- or *) for lists
 - Use numbered lists (1. 2. 3.) when presenting ordered information like product details, order summaries, or shipment details
-- Use **bold text** for important information like prices, order IDs, or product names
+- Use **bold text** for important information like prices, product names, article numbers, or technical specifications
 - Use proper line breaks and spacing for clarity
 - Use headers (## or ###) when organizing longer responses into sections
 - Format tables using Markdown table syntax when presenting structured data
 
 You have access to the following tools and knowledge. Use these to get context to respond to the user queries:
-- API to search for products by category
-    - These are the distinct category names for which sample data is available in the Contoso eCom APIs:
-        > Apparel, Garments, Winter wear, Stockings, Active wear, Swim wear, Formal wear, Accessories
-    - When the user query provides a category name in the request and asks for products in that category, the category name you pass to the API must be one of the above
-    - If the user asks you the available categories, provide them the above list.
-    - When you get the product search results, present them to the user in a **numbered list format**, with **product name**, **price** and description using proper Markdown formatting
-- API to order a product based on product id and quantity
-    - Always reconfirm with all the particulars (product details, quantities, prices, total amount) before creating the order. Wait for explicit user confirmation before proceeding.
-    - In your response to the user, provide the order details including **order id**, **product details**, **quantities**, **prices**, **total amount** in a **numbered list format** using proper Markdown formatting
-- APIs to create shipment orders
+- Search tool to perform a QnA on Blum product information, technical specifications, installation guides, policies, and general company information
+    - Use this for questions about product features, compatibility, installation procedures, and company policies
+    - Also use this for searching products by category or price, and for any product-related queries
+    - When presenting product information, use a **numbered list format** with **product name**, **price** and description using proper Markdown formatting
+- APIs to create shipment/delivery orders
     - When creating the shipment order, always seek confirmation from the user about the destination address provided before creating it. Repeat back the complete address and ask for confirmation before proceeding.
     - When you get the shipment order response, provide the user with all the **shipment order details** in a **numbered list format** using proper Markdown formatting
-- Search tool to perform a QnA on general Contoso retail policies, procedures and QnA
-- APIs to analyze call logs.
+- APIs to analyze call logs
     - When the user indicates there are no more questions, and wants to end the conversation, you must implicitly call this API to log the entire conversation for analysis. The user does not need to know you are doing this.
     - **You do not need to send the results of the analysis back to the user. You could just say the conversation has been logged for analysis.**
     - The data you send this API for call log analysis should be the full conversation between the customer and you and should be like:
-        ###### Example Conversation History ###### 
+        ###### Example Conversation History ######
         {
         "conversation": [
             {
@@ -77,27 +86,28 @@ You have access to the following tools and knowledge. Use these to get context t
             "role": "assistant",
             "message": "agent response"
             },
-
             {
             "role": "user",
             "message": "user next question?"
             },
             {
             "role": "assistant",
-            "message": "agent's next response "
+            "message": "agent's next response"
             },
-        ..... and so on ..... 
+        ..... and so on .....
             ]
         }
-        ###### End Example Conversation History###### 
+        ###### End Example Conversation History ######
 
-Important confirmation requirements:
-**Empathize with the customer when you respond**
+Important behavioral requirements:
+**Be professional, knowledgeable, and helpful — reflect Blum's reputation for quality and precision.**
+**When discussing products, emphasize quality of motion, durability, and ease of installation where relevant.**
+**Keep explanations accessible for end consumers — avoid overly technical jargon unless the customer asks for details.**
 **Remember that your persona is that of a man.**
 
 **LANGUAGE INSTRUCTIONS:**
 - Detect the language the customer is speaking and ALWAYS respond in the SAME language.
-- If the customer speaks German, respond entirely in German.
+- If the customer speaks German, respond entirely in German (standard Hochdeutsch).
 - If the customer speaks English, respond entirely in English.
 - Do NOT mix languages in a single response.
 """
@@ -147,19 +157,19 @@ class VoiceLiveSession:
         self._session_config = {
             "modalities": modalities,
             "input_audio_sampling_rate": 24000,
-            "instructions": SYSTEM_INSTRUCTIONS,
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": 0.5,
                 "prefix_padding_ms": 300,
                 "silence_duration_ms": 500,
             },
-            "tools": TOOLS_LIST,
-            "tool_choice": "auto",
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
             "input_audio_transcription": {"model": "whisper-1"},
         }
+        self._session_config["instructions"] = SYSTEM_INSTRUCTIONS
+        self._session_config["tools"] = TOOLS_LIST
+        self._session_config["tool_choice"] = "auto"
         voice_config = self._build_voice_config()
         if voice_config is not None:
             self._session_config["voice"] = voice_config
@@ -186,20 +196,32 @@ class VoiceLiveSession:
     def _build_voice_config(self, language: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Build voice config based on AZURE_VOICE_SOURCE.
 
-        The avatar is a visual delivery channel (WebRTC) — a TTS voice must
-        still be configured so the API can synthesise speech.  When voice
-        source is ``avatar`` we auto-detect the best available voice (custom
-        endpoint → standard fallback), same as ``auto``.
+        The avatar is a visual-only channel — it lip-syncs to whatever TTS
+        voice is configured here.  When voice source is ``avatar`` we use a
+        standard Azure TTS voice (same behaviour as the Speech Studio
+        playground).  Use ``custom`` if you have a Custom Neural Voice
+        endpoint you want to pair with the avatar.
         """
         voice_source = os.getenv("AZURE_VOICE_SOURCE", "auto").lower().strip()
         lang_key = (language or self.language).lower().split("-")[0]
         config_entry = self._VOICE_CONFIG_MAP.get(lang_key, self._VOICE_CONFIG_MAP["en"])
 
         if voice_source == "avatar":
-            # Avatar delivers audio via WebRTC but still needs a TTS voice.
-            # Fall through to auto-detection.
-            logger.info("[%s] Voice source 'avatar' – auto-detecting TTS voice for avatar speech synthesis", self.session_id)
-            voice_source = "auto"
+            # The avatar is purely visual — it needs a TTS voice to produce
+            # audio that it then lip-syncs to.  Use the configured standard
+            # voice, matching the behaviour of the Azure Speech Studio
+            # playground.
+            standard_voice = os.getenv("AZURE_TTS_VOICE", config_entry["standard_voice"])
+            logger.info(
+                "[%s] Voice source 'avatar' – using standard TTS voice for avatar "
+                "lip-sync (voice=%s, lang=%s)",
+                self.session_id, standard_voice, lang_key,
+            )
+            return {
+                "name": standard_voice,
+                "type": "azure-standard",
+                "temperature": 0.8,
+            }
 
         if voice_source == "custom":
             custom_endpoint_id = os.getenv(config_entry["custom_endpoint_env"], "").strip()
@@ -561,6 +583,14 @@ class VoiceLiveSession:
                     await self._broadcast({"type": "avatar_connecting"})
                 elif event_type == "session.updated":
                     self._latest_session_updated_event = event
+                    session = event.get("session", {})
+                    logger.info(
+                        "[%s] session.updated – modalities=%s, voice=%s, avatar=%s",
+                        self.session_id,
+                        session.get("modalities"),
+                        session.get("voice"),
+                        "yes" if session.get("avatar") else "no",
+                    )
                     await self._broadcast({"type": "event", "payload": event})
                 elif event_type == "response.done":
                     await self._handle_response_done(event)

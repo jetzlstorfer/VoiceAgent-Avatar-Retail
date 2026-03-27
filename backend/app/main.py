@@ -52,9 +52,9 @@ load_dotenv(backend_env, override=False)
 
 async def warmup_ecom_api():
     """Warm up the ecom API by calling the /openapi endpoint"""
-    ecom_api_url = os.getenv("ecom_api_url")
+    ecom_api_url = os.getenv("ECOM_API_URL")
     if not ecom_api_url:
-        logger.warning("ecom_api_url not configured, skipping API warmup")
+        logger.warning("ECOM_API_URL not configured, skipping API warmup")
         return
     
     warmup_url = f"{ecom_api_url.rstrip('/')}/openapi"
