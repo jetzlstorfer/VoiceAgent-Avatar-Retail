@@ -251,6 +251,14 @@ This design provides the best of both worlds:
 3. Assistant audio deltas returned by the backend are scheduled in a browser `AudioContext` for playback.
 4. Clicking **Start Avatar** creates a `RTCPeerConnection`, sends the SDP offer to `/avatar-offer`, and sets the returned answer. The avatar video and audio render through the `<video>` element.
 
+### Language Selection
+
+The UI includes a language selector that lets users switch the conversation language between **English** and **Deutsch** (German). Changing the language tears down the current session and recreates it with the new language, so the avatar speaks in the chosen language from that point on. The backend uses `AZURE_TTS_VOICE` for English and `AZURE_TTS_VOICE_DE` for German.
+
+### Avatar Capacity Error Handling
+
+When the Azure Speech avatar service is at full capacity, the frontend displays an error message with a **Retry** option rather than silently failing. A success sound (Tada) plays when the avatar connects successfully to provide clear feedback to the user.
+
 
 
 
@@ -407,8 +415,18 @@ Key settings:
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
 - If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE` – The English neural TTS voice for the assistant's speech (e.g. `en-US-AndrewMultilingualNeural`). Browse available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE_DE` – The German neural TTS voice (e.g. `de-DE-ConradNeural`). Used when the user selects German as the conversation language.
+- `AZURE_VOICE_SOURCE` – Controls which TTS voice source is used for speech output. Options:
+  - `auto` (default) – Use a custom voice if `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN/DE` is set; otherwise fall back to the standard voice.
+  - `avatar` – Audio is delivered via the avatar WebRTC channel; the TTS voice is determined by the avatar configuration.
+  - `custom` – Always use a custom neural voice. Requires `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` and/or `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE`.
+  - `standard` – Always use the standard Azure TTS voice defined in `AZURE_TTS_VOICE`.
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` – Optional. Deployment/endpoint GUID for a custom English neural voice from your Speech Studio. When set (and `AZURE_VOICE_SOURCE` is `auto` or `custom`), the English voice uses this custom deployment instead of `AZURE_TTS_VOICE`. The custom voice must be available in the same region as `AZURE_VOICE_LIVE_ENDPOINT`.
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE` – Optional. Same as above, for the German custom neural voice.
 - `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
+- `ALLOWED_ORIGINS` – Comma-separated list of allowed CORS origins (e.g. `https://myapp.example.com,https://staging.example.com`). Leave empty to allow all origins (`*`). Set this in production to restrict cross-origin access.
+- `SESSION_TTL_SECONDS` – Session idle timeout in seconds (default: `1800` = 30 minutes). Sessions that have been inactive longer than this value are automatically cleaned up by the idle session reaper.
 - `ai_search_*` – Azure AI Search connection settings.
 - `logic_app_url_*` – Logic App webhook endpoints.
 - `ecom_api_url` – Contoso sample API host.
