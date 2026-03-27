@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import ReactMarkdown from 'react-markdown';
+import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
 
 type BackgroundOption = {
     path: string;
@@ -135,6 +136,7 @@ function App() {
     const [micActive, setMicActive] = useState(false);
     const [avatarEnabled, setAvatarEnabled] = useState(true);
     const [language, setLanguage] = useState("en");
+    const [voiceSource, setVoiceSource] = useState<string>("auto");
     const [avatarReady, setAvatarReady] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
     const [avatarPaused, setAvatarPaused] = useState(false);
@@ -161,6 +163,14 @@ function App() {
     const compositeRafRef = useRef<number | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
     const avatarReadyRef = useRef(false);
+
+    // Speech SDK avatar refs (used when voiceSource === "avatar")
+    const avatarSynthesizerRef = useRef<SpeechSDK.AvatarSynthesizer | null>(null);
+    const speechSdkPcRef = useRef<RTCPeerConnection | null>(null);
+    const pendingSpeechRef = useRef<string>("");
+    const speakingRef = useRef(false);
+    const voiceSourceRef = useRef<string>("auto");
+    const speakWithSdkRef = useRef<(text: string) => void>(() => {});
 
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -408,6 +418,11 @@ function App() {
                     case "assistant_transcript_done":
                         if (typeof data.transcript === "string") {
                             setAssistantTranscript(data.transcript);
+                            // When using Speech SDK avatar (voice sync), feed
+                            // completed text to the AvatarSynthesizer for TTS.
+                            if (voiceSourceRef.current === "avatar" && avatarSynthesizerRef.current) {
+                                speakWithSdkRef.current(data.transcript);
+                            }
                         }
                         break;
                     case "user_transcript_completed":
@@ -506,10 +521,12 @@ function App() {
                     : `Failed to create session: ${response.status}`
             );
         }
-        const { session_id } = await response.json();
+        const { session_id, voice_source } = await response.json();
         setSessionId(session_id);
         setAvatarEnabled(withAvatar);
-        appendLog(`Session created (${withAvatar ? "avatar" : "audio-only"}, lang=${lang}): ${session_id}`);
+        setVoiceSource(voice_source ?? "auto");
+        voiceSourceRef.current = voice_source ?? "auto";
+        appendLog(`Session created (${withAvatar ? "avatar" : "audio-only"}, lang=${lang}, voice=${voice_source ?? "auto"}): ${session_id}`);
         connectWebSocket(session_id);
         return session_id;
     }, [appendLog, connectWebSocket]);
@@ -637,6 +654,213 @@ function App() {
             appendLog(`Failed to send text: ${response.status}`);
         }
     }, [appendLog, sessionId]);
+
+    // ── Speech SDK avatar (voice sync) ──────────────────────────────
+
+    /** Speak text via Speech SDK AvatarSynthesizer. Queues sentences. */
+    const speakWithSdk = useCallback(async (text: string) => {
+        const synth = avatarSynthesizerRef.current;
+        if (!synth || !text.trim()) return;
+
+        // Queue text if already speaking
+        if (speakingRef.current) {
+            pendingSpeechRef.current += " " + text;
+            return;
+        }
+
+        speakingRef.current = true;
+        try {
+            const result = await synth.speakTextAsync(text);
+            if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+                console.warn(`Speech synthesis result: ${SpeechSDK.ResultReason[result.reason]}`);
+            }
+        } catch (err: unknown) {
+            console.warn("Speech SDK speak error:", err);
+        } finally {
+            speakingRef.current = false;
+        }
+
+        // Drain queue
+        const next = pendingSpeechRef.current.trim();
+        if (next) {
+            pendingSpeechRef.current = "";
+            speakWithSdk(next);
+        }
+    }, []);
+
+    // Keep ref in sync so WebSocket handler can call it
+    useEffect(() => { speakWithSdkRef.current = speakWithSdk; }, [speakWithSdk]);
+
+    /**
+     * Start the avatar via Speech SDK (voice sync for avatar).
+     * Fetches a speech token from the backend, configures the AvatarSynthesizer,
+     * and starts the WebRTC connection.
+     */
+    const startSdkAvatar = useCallback(async () => {
+        if (!sessionId) {
+            appendLog("Session not ready");
+            return;
+        }
+        if (avatarSynthesizerRef.current) {
+            appendLog("Speech SDK avatar already connected");
+            return;
+        }
+
+        const avatarLoadStartedAtMs = Date.now();
+        setAvatarLoading(true);
+        setAvatarLoadStartedAt(avatarLoadStartedAtMs);
+        setAvatarLoadElapsedMs(0);
+        setAvatarError(null);
+        appendLog("Initializing Speech SDK avatar (voice sync)...");
+
+        try {
+            // 1. Get speech token from backend
+            const tokenResp = await fetch(`${BACKEND_HTTP_BASE}/sessions/${sessionId}/speech-token`);
+            if (!tokenResp.ok) {
+                throw new Error(`Failed to get speech token: ${tokenResp.status}`);
+            }
+            const { token, region, avatar_character, avatar_customized, ice_servers, use_subscription_key } = await tokenResp.json();
+
+            // 2. Build ICE server config from backend response
+            const iceServers: RTCIceServer[] = (ice_servers ?? []).map((s: { urls: string[]; username: string; credential: string }) => ({
+                urls: s.urls,
+                username: s.username,
+                credential: s.credential,
+            }));
+            if (iceServers.length > 0) {
+                appendLog("Got ICE relay servers for Speech SDK avatar");
+            }
+
+            // 3. Configure Speech SDK
+            // Custom avatars must use the 'voice' websocket route per the official Azure sample.
+            const endpointRoute = avatar_customized ? "voice" : "tts";
+            let speechConfig: SpeechSDK.SpeechConfig;
+            if (use_subscription_key) {
+                // Use fromEndpoint with subscription key (matches official Azure avatar sample)
+                speechConfig = SpeechSDK.SpeechConfig.fromEndpoint(
+                    new URL(`wss://${region}.${endpointRoute}.speech.microsoft.com/cognitiveservices/websocket/v1?enableTalkingAvatar=true`),
+                    token,
+                );
+            } else {
+                // Use auth token (managed identity path)
+                speechConfig = SpeechSDK.SpeechConfig.fromEndpoint(
+                    new URL(`wss://${region}.${endpointRoute}.speech.microsoft.com/cognitiveservices/websocket/v1?enableTalkingAvatar=true`),
+                );
+                speechConfig.authorizationToken = token;
+            }
+            // Don't set speechSynthesisVoiceName — use the avatar's built-in voice sync
+
+            const videoFormat = new SpeechSDK.AvatarVideoFormat();
+            const avatarConfig = new SpeechSDK.AvatarConfig(avatar_character, "", videoFormat);
+            (avatarConfig as any).customized = avatar_customized;
+            (avatarConfig as any).useBuiltInVoice = true;
+
+            const synthesizer = new SpeechSDK.AvatarSynthesizer(speechConfig, avatarConfig);
+            avatarSynthesizerRef.current = synthesizer;
+
+            synthesizer.avatarEventReceived = (_s: unknown, e: { description: string; offset: number }) => {
+                if (e.offset !== 0) {
+                    appendLog(`Avatar event: ${e.description} (offset: ${e.offset / 10000}ms)`);
+                }
+            };
+
+            // 4. Set up WebRTC peer connection with ICE servers
+            const pc = new RTCPeerConnection({ iceServers });
+            speechSdkPcRef.current = pc;
+
+            // Must use sendrecv per the official Azure avatar sample
+            pc.addTransceiver("video", { direction: "sendrecv" });
+            pc.addTransceiver("audio", { direction: "sendrecv" });
+
+            pc.ontrack = (event) => {
+                appendLog(`Speech SDK track received: kind=${event.track.kind}, streams=${event.streams.length}`);
+                if (event.track.kind === "video" && videoRef.current) {
+                    videoRef.current.srcObject = event.streams[0];
+                    videoRef.current.autoplay = true;
+                    videoRef.current.playsInline = true;
+                    // Unmute the video element — Speech SDK may deliver audio
+                    // through the same stream as video
+                    videoRef.current.muted = false;
+                    videoRef.current.addEventListener("loadeddata", () => {
+                        videoRef.current?.play().catch(() => {});
+                    });
+                    appendLog("Speech SDK avatar video track received");
+                }
+                if (event.track.kind === "audio") {
+                    let audioEl = remoteAudioRef.current;
+                    if (!audioEl) {
+                        audioEl = document.createElement("audio");
+                        audioEl.autoplay = true;
+                        audioEl.controls = false;
+                        audioEl.style.display = "none";
+                        audioEl.setAttribute("playsinline", "true");
+                        document.body.appendChild(audioEl);
+                        remoteAudioRef.current = audioEl;
+                    }
+                    audioEl.srcObject = event.streams[0];
+                    audioEl.muted = false;
+                    audioEl.play().catch((err) => appendLog(`Audio play warning: ${String(err)}`));
+                    appendLog("Speech SDK avatar audio track received");
+                }
+            };
+
+            // Create a data channel (required by the SDK per official sample)
+            pc.createDataChannel("eventChannel");
+
+            pc.oniceconnectionstatechange = () => {
+                appendLog(`Speech SDK WebRTC ICE state: ${pc.iceConnectionState}`);
+            };
+
+            // 5. Start avatar (SDK handles SDP negotiation internally)
+            appendLog("Starting Speech SDK avatar connection...");
+            const result = await synthesizer.startAvatarAsync(pc);
+            if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+                appendLog("Speech SDK avatar started successfully");
+            } else {
+                // Extract cancellation details
+                let errorDetail = `Result: ${SpeechSDK.ResultReason[result.reason]}`;
+                if (result.reason === SpeechSDK.ResultReason.Canceled) {
+                    const cancellation = SpeechSDK.CancellationDetails.fromResult(result as unknown as SpeechSDK.SpeechSynthesisResult);
+                    errorDetail = `Canceled: ${SpeechSDK.CancellationReason[cancellation.reason]} – ${cancellation.errorDetails}`;
+                    appendLog(errorDetail);
+                } else {
+                    appendLog(`Speech SDK avatar start: ${errorDetail}`);
+                }
+                throw new Error(errorDetail);
+            }
+
+            setAvatarReady(true);
+            avatarReadyRef.current = true;
+            appendLog("Speech SDK avatar connected (voice sync active)");
+            playTadaSound();
+        } catch (error) {
+            appendLog(`Speech SDK avatar error: ${String(error)}`);
+            setAvatarError(`Speech SDK avatar failed: ${String(error)}`);
+            avatarSynthesizerRef.current = null;
+            if (speechSdkPcRef.current) {
+                speechSdkPcRef.current.close();
+                speechSdkPcRef.current = null;
+            }
+        } finally {
+            setAvatarLoading(false);
+            setAvatarLoadStartedAt(null);
+        }
+    }, [appendLog, sessionId]);
+
+    const teardownSdkAvatar = useCallback(() => {
+        if (avatarSynthesizerRef.current) {
+            avatarSynthesizerRef.current.close();
+            avatarSynthesizerRef.current = null;
+        }
+        if (speechSdkPcRef.current) {
+            speechSdkPcRef.current.close();
+            speechSdkPcRef.current = null;
+        }
+        pendingSpeechRef.current = "";
+        speakingRef.current = false;
+    }, []);
+
+    // ── Voice Live avatar (standard/custom voice) ───────────────────
 
     const startAvatar = useCallback(async () => {
         if (!sessionId) {
@@ -775,6 +999,20 @@ function App() {
         if (!avatarEnabled || !sessionId) {
             return;
         }
+
+        // Speech SDK avatar path: start immediately (no ICE servers needed from Voice Live)
+        if (voiceSource === "avatar") {
+            if (avatarLoading || avatarReady || avatarSynthesizerRef.current) {
+                return;
+            }
+            autoStartAvatarRef.current = false;
+            startSdkAvatar().catch((error: unknown) => {
+                appendLog(`Auto-start Speech SDK avatar failed: ${String(error)}`);
+            });
+            return;
+        }
+
+        // Voice Live avatar path: wait for ICE servers
         if (avatarIceServers.length === 0 || avatarLoading || avatarReady || pcRef.current) {
             return;
         }
@@ -783,7 +1021,7 @@ function App() {
         startAvatar().catch((error: unknown) => {
             appendLog(`Auto-start avatar failed: ${String(error)}`);
         });
-    }, [appendLog, avatarEnabled, avatarIceServers.length, avatarLoading, avatarReady, sessionId, startAvatar]);
+    }, [appendLog, avatarEnabled, avatarIceServers.length, avatarLoading, avatarReady, sessionId, startAvatar, startSdkAvatar, voiceSource]);
 
     const teardownAvatar = useCallback(() => {
         if (compositeRafRef.current !== null) {
@@ -792,6 +1030,8 @@ function App() {
         }
         pcRef.current?.close();
         pcRef.current = null;
+        // Also tear down Speech SDK avatar if active
+        teardownSdkAvatar();
         if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
@@ -812,7 +1052,7 @@ function App() {
         setAvatarLoadStartedAt(null);
         setAvatarLoadElapsedMs(0);
         appendLog("Avatar connection closed");
-    }, [appendLog]);
+    }, [appendLog, teardownSdkAvatar]);
 
     const toggleAvatarMode = useCallback(async () => {
         const newMode = !avatarEnabled;
@@ -968,8 +1208,8 @@ function App() {
                     </button>
                     {avatarEnabled && (
                         <>
-                            <button onClick={startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
-                                {avatarLoading ? "Connecting Avatar..." : avatarIceServers.length === 0 ? "Start Avatar (ICE pending)" : "Start Avatar"}
+                            <button onClick={voiceSource === "avatar" ? startSdkAvatar : startAvatar} disabled={!sessionId || avatarLoading || avatarReady}>
+                                {avatarLoading ? "Connecting Avatar..." : voiceSource === "avatar" ? "Start Avatar (Voice Sync)" : avatarIceServers.length === 0 ? "Start Avatar (ICE pending)" : "Start Avatar"}
                             </button>
                             <button 
                                 onClick={avatarPaused ? unpauseAvatar : pauseAvatar} 
@@ -1041,7 +1281,7 @@ function App() {
                             className={customBackgroundEnabled ? "video-hidden-for-key" : undefined}
                             autoPlay
                             playsInline
-                            muted
+                            muted={voiceSource !== "avatar"}
                             controls={false}
                         />
                         {customBackgroundEnabled && <canvas ref={compositeCanvasRef} className="avatar-composite-canvas" />}
@@ -1070,7 +1310,7 @@ function App() {
                                     <div className="avatar-error">
                                         <span className="avatar-error-icon">⚠️</span>
                                         <p>{avatarError}</p>
-                                        <button onClick={startAvatar} disabled={!sessionId}>
+                                        <button onClick={voiceSource === "avatar" ? startSdkAvatar : startAvatar} disabled={!sessionId}>
                                             Retry Avatar
                                         </button>
                                     </div>

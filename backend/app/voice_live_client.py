@@ -146,10 +146,18 @@ class VoiceLiveSession:
         
         logger.info(f"[{session_id}] Voice Live config: endpoint={endpoint}, model={model}, avatar_enabled={avatar_enabled}, avatar_character={avatar_character}, api_version={self._api_version}")
 
-        # In audio-only mode, use only text+audio modalities so the API
-        # sends response audio as WebSocket delta events instead of routing
-        # it through the WebRTC avatar channel.
-        if avatar_enabled:
+        # When voice_source is "avatar", Speech SDK handles TTS + avatar
+        # rendering on the frontend. Voice Live only provides STT + LLM
+        # (text output). No audio/avatar modalities are needed.
+        voice_source = os.getenv("AZURE_VOICE_SOURCE", "auto").lower().strip()
+        self._voice_source = voice_source
+
+        if avatar_enabled and voice_source == "avatar":
+            # Text-only: Speech SDK on frontend handles TTS + avatar WebRTC
+            modalities = ["text", "audio"]
+            logger.info("[%s] Voice source 'avatar' – Voice Live in text+audio mode; "
+                        "Speech SDK will handle avatar TTS via voice sync", session_id)
+        elif avatar_enabled:
             modalities = ["text", "audio", "avatar", "animation"]
         else:
             modalities = ["text", "audio"]
@@ -173,7 +181,7 @@ class VoiceLiveSession:
         voice_config = self._build_voice_config()
         if voice_config is not None:
             self._session_config["voice"] = voice_config
-        if avatar_enabled:
+        if avatar_enabled and voice_source != "avatar":
             self._session_config["avatar"] = self._build_avatar_config()
             self._session_config["animation"] = {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]}
 

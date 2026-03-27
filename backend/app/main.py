@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 
 class SessionResponse(BaseModel):
     session_id: str
+    voice_source: str = "auto"
 
 
 class AvatarOfferRequest(BaseModel):
@@ -143,11 +144,12 @@ class CreateSessionRequest(BaseModel):
 @app.post("/sessions", response_model=SessionResponse)
 async def create_session(request: CreateSessionRequest = CreateSessionRequest()) -> SessionResponse:
     try:
+        voice_source = os.getenv("AZURE_VOICE_SOURCE", "auto").lower().strip()
         session = await session_manager.create_session(
             avatar_enabled=request.avatar_enabled,
             language=request.language,
         )
-        return SessionResponse(session_id=session.session_id)
+        return SessionResponse(session_id=session.session_id, voice_source=voice_source)
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Failed to create Voice Live session")
         error_text = str(exc)
@@ -169,6 +171,77 @@ async def create_session(request: CreateSessionRequest = CreateSessionRequest())
             status_code=503,
             detail=detail,
         ) from exc
+
+
+class IceServer(BaseModel):
+    urls: list[str]
+    username: str = ""
+    credential: str = ""
+
+
+class SpeechTokenResponse(BaseModel):
+    token: str
+    region: str
+    avatar_character: str
+    avatar_customized: bool
+    ice_servers: list[IceServer] = []
+    use_subscription_key: bool = False
+
+
+@app.get("/sessions/{session_id}/speech-token", response_model=SpeechTokenResponse)
+async def get_speech_token(session_id: str) -> SpeechTokenResponse:
+    """Return Speech SDK credentials and ICE relay info for frontend avatar voice sync."""
+    await _ensure_session(session_id)  # validate session exists
+    # Prefer AZURE_SPEECH_KEY (speech resource key) for Speech SDK avatar.
+    # Falls back to AZURE_OPENAI_API_KEY, then DefaultAzureCredential.
+    speech_key = os.getenv("AZURE_SPEECH_KEY", "").strip() or os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+    region = os.getenv("REGION", "westus2")
+
+    ice_servers: list[IceServer] = []
+
+    if speech_key:
+        # When an API key is available, pass it directly for Speech SDK
+        # (fromSubscription). Also fetch ICE relay token.
+        import aiohttp
+        ice_url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/avatar/relay/token/v1"
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.get(
+                ice_url,
+                headers={"Ocp-Apim-Subscription-Key": speech_key},
+            ) as ice_resp:
+                if ice_resp.status == 200:
+                    ice_data = await ice_resp.json()
+                    ice_servers = [IceServer(
+                        urls=ice_data.get("Urls", []),
+                        username=ice_data.get("Username", ""),
+                        credential=ice_data.get("Password", ""),
+                    )]
+                else:
+                    logger.warning("Failed to fetch ICE relay token: %d", ice_resp.status)
+
+        return SpeechTokenResponse(
+            token=speech_key,
+            region=region,
+            avatar_character=os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa"),
+            avatar_customized=os.getenv("AZURE_VOICE_AVATAR_CUSTOMIZED", "false").lower() in ("true", "1", "yes"),
+            ice_servers=ice_servers,
+            use_subscription_key=True,
+        )
+    else:
+        # Use DefaultAzureCredential to fetch a token
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential()
+        token_obj = await asyncio.get_event_loop().run_in_executor(
+            None, credential.get_token, "https://cognitiveservices.azure.com/.default"
+        )
+        return SpeechTokenResponse(
+            token=token_obj.token,
+            region=region,
+            avatar_character=os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa"),
+            avatar_customized=os.getenv("AZURE_VOICE_AVATAR_CUSTOMIZED", "false").lower() in ("true", "1", "yes"),
+            ice_servers=ice_servers,
+            use_subscription_key=False,
+        )
 
 
 @app.post("/sessions/{session_id}/avatar-offer", response_model=AvatarAnswerResponse)
