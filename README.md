@@ -395,23 +395,33 @@ Key settings:
 **Important**: before you do anything, run the `test_avatar_characters.py` script to verify that your avatar character configuration is correct and compatible with your Speech resource region. Incorrect avatar settings are the most common source of errors when connecting to Voice Live. A very common configuration is `lisa` avatar and `casual-sitting` style, but again please verify with the script as character availability varies by region and resource.
 
 - `AZURE_VOICE_LIVE_ENDPOINT` / `VOICE_LIVE_MODEL` – Voice Live endpoint + realtime model name (e.g. `gpt-realtime-preview`).
-- `AZURE_VOICE_AVATAR_CHARACTER` – **Required**: Avatar persona that exists in your Speech Studio resource. 
+- `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
+- `AZURE_VOICE_AVATAR_CHARACTER` – **Required**: Avatar persona that exists in your Speech Studio resource.
   - **Find valid characters**: Go to [Speech Studio](https://speech.microsoft.com) → Your resource → Avatar section
   - **Region-specific**: Character names vary by Speech resource region
   - **Case-sensitive**: Use exact character ID from portal (e.g., `lisa`, `james`, `michelle`)
   - Common error: `avatar_verification_failed` means the character doesn't exist in your resource/region
 - Optional `AZURE_VOICE_AVATAR_STYLE` – Supply only if the character supports named styles (leave unset to use the service default).
 - Optional `AZURE_VOICE_AVATAR_CUSTOMIZED` – Set to `true` when using a custom-trained avatar model instead of a prebuilt character (defaults to `false`).
-- `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
+- `AZURE_VOICE_SOURCE` – Controls which voice the avatar uses for speech. Options:
+  - `avatar` – Use the avatar's built-in voice via Speech SDK (requires `AZURE_SPEECH_KEY`). The avatar's trained voice handles TTS and WebRTC; Voice Live handles STT and the LLM only.
+  - `custom` – Use a deployed custom neural voice (requires `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` or `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE`).
+  - `standard` – Use a standard Azure TTS voice specified by `AZURE_TTS_VOICE`.
+  - `auto` – (default) Use custom voice if an endpoint ID is configured, otherwise fall back to `standard`.
+- `AZURE_SPEECH_KEY` – Speech resource key. Required when `AZURE_VOICE_SOURCE=avatar`; used by the Speech SDK for avatar voice sync. Get it from Azure Portal → Speech resource → Keys and Endpoint.
+- `AZURE_TTS_VOICE` – Neural TTS voice name for English (e.g. `en-US-AndrewMultilingualNeural`). Browse available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE_DE` – German TTS voice name (e.g. `de-DE-ConradNeural`). Used when the agent responds in German and no custom voice endpoint is configured for German.
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` / `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE` – Optional deployment GUIDs for custom neural voices. When set, the corresponding language uses your deployed custom neural voice instead of a standard TTS voice. The voice must be available in the same region as `AZURE_VOICE_LIVE_ENDPOINT`.
+- `AZURE_AGENT_ENDPOINT` – Azure AI Foundry Agent endpoint for product knowledge QnA. When set, the `perform_search_based_qna` tool calls this agent using the Responses API instead of querying Azure AI Search directly. Format: `https://<resource>.services.ai.azure.com/api/projects/<project>/applications/<agent>/protocols/openai/responses?api-version=2025-11-15-preview`
+- `LOGIC_APP_URL_SHIPMENT_ORDERS` – Logic App webhook URL for the shipment order workflow.
+- `LOGIC_APP_URL_CALL_LOG_ANALYSIS` – Logic App webhook URL for the conversation analysis workflow.
+- `ECOM_API_URL` – Contoso sample e-commerce API host used for product search and order processing.
+- `ALLOWED_ORIGINS` – Comma-separated list of allowed CORS origins. Leave empty to allow all origins (wildcard `*`) in development. Example: `https://myapp.example.com,https://staging.example.com`.
+- `SESSION_TTL_SECONDS` – Session idle timeout in seconds (default `1800` = 30 minutes). Sessions inactive longer than this value are automatically reaped by the backend.
+- If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
 - `TAG` – Optional deployment image tag. Leave empty (recommended) to let `deploy.sh` generate a unique immutable tag per deployment.
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
-- If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
-- `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
-- `ai_search_*` – Azure AI Search connection settings.
-- `logic_app_url_*` – Logic App webhook endpoints.
-- `ecom_api_url` – Contoso sample API host.
 - Optional `VITE_BACKEND_BASE` – Override when serving the frontend behind a different hostname.
 
 ### Running the Application
