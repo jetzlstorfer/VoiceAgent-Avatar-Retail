@@ -32,8 +32,8 @@ Here is the high level view of the architecture used in the solution. ![architec
 
 ### Key Components
 
-- **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming.
-- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions, handles function calls, and facilitates WebRTC SDP negotiation for avatar connections.
+- **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming. Supports two avatar rendering modes: Voice Live avatar (default) and Speech SDK avatar (when `AZURE_VOICE_SOURCE=avatar`). Includes custom background rendering with chroma-key support.
+- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions with automatic idle reaping, handles function calls (Foundry Agent or Azure AI Search, shipment orders, call log analysis), and facilitates WebRTC SDP negotiation for avatar connections.
 - **Azure Voice Live API** – Microsoft's realtime AI service that acts as a gateway to GPT-4 Realtime Model, processes audio, generates responses, and provides avatar video streams via WebRTC.
 
 
@@ -366,20 +366,32 @@ Here is a Call log Analysis document stored in Azure CosmosDB
 
 ```
 
-#### 🔍 Azure AI Search Integration
+#### 🔍 Knowledge Base Integration (Foundry Agent / Azure AI Search)
 
 **Purpose**: Provides intelligent search capabilities for customer support and product knowledge.
+
+The `perform_search_based_qna` tool invokes a **Foundry Agent** (Azure AI Foundry Responses API) when `AZURE_AGENT_ENDPOINT` is configured. The agent is called with the user's query and returns grounded answers from its connected knowledge sources. Authentication uses `DefaultAzureCredential`.
+
+### Function Tools Reference
+
+The backend registers three function tools that GPT-4 Realtime can call during a conversation:
+
+| Tool | Parameters | Backend env var | Description |
+|------|-----------|-----------------|-------------|
+| `perform_search_based_qna` | `query: str` | `AZURE_AGENT_ENDPOINT` | Calls a Foundry Agent to answer product and policy questions |
+| `create_delivery_order` | `order_id: str`, `destination: str` | `LOGIC_APP_URL_SHIPMENT_ORDERS` | Creates a shipment order via Logic App |
+| `perform_call_log_analysis` | `call_log: str` (JSON) | `LOGIC_APP_URL_CALL_LOG_ANALYSIS` | Sends conversation history for quality analysis via Logic App |
 
 
 ## Prerequisites
 
-- Python 3.10+
-- Node.js 20+
+- Python 3.12+
+- Node.js 22+
 - Azure resources:
   - Speech resource enabled for Voice Live API
-  - Azure AI Search service (with an index + semantic configuration)
+  - Foundry Agent for product knowledge QnA (via `AZURE_AGENT_ENDPOINT`), **or** Azure AI Search service
   - Logic Apps for shipments and call log analysis
-  - Contoso retail sample APIs (or your equivalent business APIs)
+  - Contoso retail sample APIs or your equivalent business APIs (optional, for the e-commerce tool)
 - Authentication via either `DefaultAzureCredential` (Managed Identity, Visual Studio Code sign-in, or Azure CLI login) **or** an Azure OpenAI API key via `AZURE_OPENAI_API_KEY`.
 
 ### Configuration
@@ -394,7 +406,7 @@ Key settings:
 
 **Important**: before you do anything, run the `test_avatar_characters.py` script to verify that your avatar character configuration is correct and compatible with your Speech resource region. Incorrect avatar settings are the most common source of errors when connecting to Voice Live. A very common configuration is `lisa` avatar and `casual-sitting` style, but again please verify with the script as character availability varies by region and resource.
 
-- `AZURE_VOICE_LIVE_ENDPOINT` / `VOICE_LIVE_MODEL` – Voice Live endpoint + realtime model name (e.g. `gpt-realtime-preview`).
+- `AZURE_VOICE_LIVE_ENDPOINT` / `VOICE_LIVE_MODEL` – Voice Live endpoint + realtime model name (e.g. `gpt-realtime`).
 - `AZURE_VOICE_AVATAR_CHARACTER` – **Required**: Avatar persona that exists in your Speech Studio resource. 
   - **Find valid characters**: Go to [Speech Studio](https://speech.microsoft.com) → Your resource → Avatar section
   - **Region-specific**: Character names vary by Speech resource region
@@ -402,16 +414,48 @@ Key settings:
   - Common error: `avatar_verification_failed` means the character doesn't exist in your resource/region
 - Optional `AZURE_VOICE_AVATAR_STYLE` – Supply only if the character supports named styles (leave unset to use the service default).
 - Optional `AZURE_VOICE_AVATAR_CUSTOMIZED` – Set to `true` when using a custom-trained avatar model instead of a prebuilt character (defaults to `false`).
+- Optional `AZURE_VOICE_AVATAR_WIDTH` / `AZURE_VOICE_AVATAR_HEIGHT` / `AZURE_VOICE_AVATAR_BITRATE` – Avatar video resolution and bitrate. Defaults: `1280×720` at `2000000` bps if connecting via Voice Live avatar mode (env.sample ships `640×360` at `800000` for bandwidth-constrained environments).
 - `AZURE_OPENAI_API_KEY` – Required when authenticating with an API key instead of managed identity.
+- `AZURE_SPEECH_KEY` – Speech resource key, required when `AZURE_VOICE_SOURCE=avatar` for Speech SDK avatar voice sync.
+
+**Voice source configuration** (`AZURE_VOICE_SOURCE`):
+
+| Value | Behaviour |
+|-------|-----------|
+| `auto` (default) | Uses a custom neural voice if `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN/DE` is configured, otherwise a standard Azure TTS voice. |
+| `avatar` | Speech SDK on the frontend handles TTS + avatar WebRTC rendering. Voice Live provides STT + LLM only (text + audio modalities). |
+| `custom` | Uses a Custom Neural Voice deployment — requires `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` (or `_DE`). |
+| `standard` | Uses a standard Azure prebuilt neural TTS voice (set by `AZURE_TTS_VOICE`). |
+
+- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `en-US-AndrewMultilingualNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
+- `AZURE_TTS_VOICE_DE` – German TTS voice fallback (default: `de-DE-ConradNeural`).
+- `AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN` / `AZURE_CUSTOM_VOICE_ENDPOINT_ID_DE` – Deployment/endpoint IDs for Custom Neural Voice (optional).
+
+**Foundry Agent / Knowledge base**:
+
+- `AZURE_AGENT_ENDPOINT` – When set, the `perform_search_based_qna` tool calls a Foundry Agent (Responses API) instead of Azure AI Search. Format: `https://<resource>.services.ai.azure.com/api/projects/<project>/applications/<agent>/protocols/openai/responses?api-version=2025-11-15-preview`
+
+**Business service endpoints**:
+
+- `LOGIC_APP_URL_SHIPMENT_ORDERS` – Logic App webhook for creating shipment orders.
+- `LOGIC_APP_URL_CALL_LOG_ANALYSIS` – Logic App webhook for conversation analysis.
+- `ECOM_API_URL` – Contoso sample API host (optional; used for API warmup on startup).
+
+**Application settings**:
+
+- `ALLOWED_ORIGINS` – Comma-separated list of allowed CORS origins. Defaults to `*` (wildcard) if empty.
+- `SESSION_TTL_SECONDS` – Session idle timeout in seconds (default `1800` = 30 minutes). Sessions inactive longer than this are automatically reaped.
+- `REGION` – Azure region for the Speech resource (default: `westus2`). Used for Speech SDK token and ICE relay endpoint.
+
+**Deployment variables** (used by `deploy.sh`):
+
+- `RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `CONTAINER_REGISTRY`, `IMAGE_NAME`, `REGION`
 - `TAG` – Optional deployment image tag. Leave empty (recommended) to let `deploy.sh` generate a unique immutable tag per deployment.
 - `TAG_PREFIX` – Optional prefix for auto-generated tags (default: `build`).
 - `PUSH_LATEST_ALIAS` – Optional `true`/`false`. Set to `true` only if you also want to publish a mutable `:latest` alias in ACR.
-- If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The repo's `deploy.sh` now attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
-- `AZURE_TTS_VOICE` – The neural TTS voice used for the assistant's speech (e.g. `de-DE-KatjaNeural`, `en-US-JennyNeural`). Browse all available voices in the [Azure prebuilt neural voices list](https://learn.microsoft.com/en-gb/azure/ai-services/speech-service/language-support?tabs=tts#prebuilt-neural-voices) or preview them in [Speech Studio Voice Gallery](https://speech.microsoft.com/portal/voicegallery).
-- `AZURE_VOICE_AVATAR_*` – Avatar character and optional TURN/STUN servers.
-- `ai_search_*` – Azure AI Search connection settings.
-- `logic_app_url_*` – Logic App webhook endpoints.
-- `ecom_api_url` – Contoso sample API host.
+
+**Managed identity RBAC**: If you authenticate with managed identity, the Container App identity needs `Cognitive Services User` and `Cognitive Services OpenAI User` on the Cognitive Services resource behind `AZURE_VOICE_LIVE_ENDPOINT`. The `deploy.sh` script attempts to assign both roles automatically when it can match the endpoint to a resource in the current subscription.
+
 - Optional `VITE_BACKEND_BASE` – Override when serving the frontend behind a different hostname.
 
 ### Running the Application
@@ -426,17 +470,18 @@ A `Makefile` is provided to simplify startup:
 # First time setup: create venv and install all Python dependencies
 make install
 
-# Fast startup after make install: copy frontend and start backend
-make run-copy
-
-# Or full startup with dependency installation: install, copy frontend, and run
+# Full startup: install deps, build frontend, copy to backend/static, and run
 make run
+
+# Fast startup after make install: build frontend, copy, and start backend (skips pip install)
+make run-copy
 ```
 
 Available Makefile targets:
 - `make install` – Create backend virtual environment and install Python dependencies
-- `make run` – Install dependencies, copy `frontend/dist` to `backend/static`, and start backend on port 8000
-- `make run-copy` – Copy `frontend/dist` to `backend/static` and start backend (skips dependency installation; requires `make install` first)
+- `make build-frontend` – Build the frontend with `npm install && npm run build`
+- `make run` – Install dependencies, build frontend, copy `frontend/dist` to `backend/static`, and start backend on port 8000
+- `make run-copy` – Build frontend, copy `frontend/dist` to `backend/static`, and start backend (skips dependency installation; requires `make install` first)
 - `make copy-frontend` – Manually sync `frontend/dist` to `backend/static`
 - `make clean` – Remove backend virtual environment
 
@@ -465,11 +510,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 Make sure that frontend is copied to `backend/static` so it can be served by FastAPI. The backend serves the frontend at `http://localhost:8000` and also acts as a WebSocket proxy for API calls from the frontend to Azure Voice Live API.
 
 The backend exposes:
-- `POST /sessions` – Create a Voice Live session.
+- `POST /sessions` – Create a Voice Live session. Accepts optional `avatar_enabled` (bool) and `language` (`"en"` | `"de"`). Returns `session_id` and `voice_source`.
 - `POST /sessions/{id}/avatar-offer` – Exchange WebRTC SDP for avatar video.
 - `POST /sessions/{id}/text` – Send a text turn to the assistant.
 - `POST /sessions/{id}/commit-audio` – Force audio commit (mostly for manual control).
-- `WS /ws/sessions/{id}` – Bi-directional channel for audio streaming and realtime events.
+- `GET /sessions/{id}/speech-token` – Return Speech SDK credentials and ICE relay info (used by the frontend for `AZURE_VOICE_SOURCE=avatar` mode).
+- `WS /ws/sessions/{id}` – Bi-directional channel for audio streaming and realtime events. Supports message types: `audio_chunk`, `user_text`, `commit_audio`, `clear_audio`, `request_response`.
+- `GET /health` – Basic health check.
+- `GET /health/live` – Liveness probe.
+- `GET /health/ready` – Readiness probe (reports active session count).
 
 #### Frontend
 
@@ -545,13 +594,14 @@ The backend configures the Voice Live session to enable avatar functionality:
 def _build_avatar_config(self) -> Dict[str, Any]:
     character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
     style = os.getenv("AZURE_VOICE_AVATAR_STYLE")
+    customized = os.getenv("AZURE_VOICE_AVATAR_CUSTOMIZED", "false").lower() in ("true", "1", "yes")
     video_width = int(os.getenv("AZURE_VOICE_AVATAR_WIDTH", "1280"))
     video_height = int(os.getenv("AZURE_VOICE_AVATAR_HEIGHT", "720"))
     bitrate = int(os.getenv("AZURE_VOICE_AVATAR_BITRATE", "2000000"))
     
     config = {
         "character": character,
-        "customized": False,
+        "customized": customized,
         "video": {
             "resolution": {"width": video_width, "height": video_height}, 
             "bitrate": bitrate
@@ -570,10 +620,16 @@ def _build_avatar_config(self) -> Dict[str, Any]:
         ]
     
     return config
+```
 
+The session modalities depend on `AZURE_VOICE_SOURCE`:
+- When `AZURE_VOICE_SOURCE=avatar`, only `["text", "audio"]` modalities are used — the Speech SDK on the frontend handles TTS + avatar WebRTC rendering.
+- Otherwise (with avatar enabled), modalities include `["text", "audio", "avatar", "animation"]`, and Voice Live handles the full avatar pipeline.
+
+```python
 # Session configuration includes avatar modality
 self._session_config = {
-    "modalities": ["text", "audio", "avatar", "animation"],
+    "modalities": ["text", "audio", "avatar", "animation"],  # or ["text", "audio"] for Speech SDK avatar
     "avatar": self._build_avatar_config(),
     "animation": {"model_name": "default", "outputs": ["blendshapes", "viseme_id"]},
     # ... other config
@@ -880,11 +936,27 @@ The avatar path relies on the Azure Voice Live realtime session plus a WebRTC ne
 
 ### Expected Session Events
 
-1. **`session.updated`** – Confirms avatar modality is active and provides ICE servers for WebRTC connection
-2. **`session.avatar.connecting`** – Avatar WebRTC handshake in progress, returns SDP answer
-3. **`response.audio.delta`** – Assistant audio continues streaming even with avatar active
-4. **WebRTC `ontrack`** – Video and audio tracks received from avatar stream
-5. **`error`** – Any negotiation or streaming failures with detailed error information
+1. **`session_ready`** – Sent immediately when the WebSocket connects, contains the `session_id`
+2. **`session.updated`** – Confirms avatar modality is active and provides ICE servers for WebRTC connection
+3. **`session.avatar.connecting`** – Avatar WebRTC handshake in progress, returns SDP answer
+4. **`response.audio.delta`** – Assistant audio continues streaming even with avatar active
+5. **WebRTC `ontrack`** – Video and audio tracks received from avatar stream
+6. **`error`** – Any negotiation or streaming failures with detailed error information
+
+### Custom Background Rendering
+
+The frontend supports custom background images behind the avatar using a real-time chroma-key (green-screen removal) algorithm. Background images are placed in the `frontend/background/` directory and selectable via the UI. The keying algorithm features:
+- Adjustable brightness threshold and color spread controls
+- Edge softening for a smooth matte
+- Near-white pixel removal to reduce halo artifacts around the avatar
+
+### Speech SDK Avatar Mode
+
+When `AZURE_VOICE_SOURCE=avatar`, the application uses a different rendering pipeline:
+- The **Speech SDK** (`microsoft-cognitiveservices-speech-sdk`) on the frontend handles TTS and avatar WebRTC rendering via `AvatarSynthesizer`
+- Voice Live operates in text + audio mode only (STT + LLM), producing text transcripts that are fed to the Speech SDK for avatar lip-sync
+- The `GET /sessions/{id}/speech-token` endpoint provides the frontend with Speech SDK credentials and ICE relay server configuration
+- This mode requires `AZURE_SPEECH_KEY` to be set
 
 ### Troubleshooting Avatar Issues
 
@@ -897,7 +969,7 @@ python test_avatar_characters.py
 
 #### Common Issues and Solutions
 - **`avatar_verification_failed`**: Character doesn't exist in your Speech resource/region
-- **SDP timeout**: Check that `AZURE_VOICE_AVATAR_ENABLED=true` and SDP payload is base64 JSON
+- **SDP timeout**: Check that the session was created with `avatar_enabled=true` and that `AZURE_VOICE_SOURCE` is not set to `avatar` (which uses Speech SDK instead of Voice Live for avatar rendering)
 - **Silent video**: Confirm ICE servers are received and AudioContext is not suspended
 - **Connection failures**: Verify TURN/STUN servers for NAT traversal
 
@@ -946,9 +1018,10 @@ The following files have been added for containerization (no impact on local dev
 
 - `Dockerfile` - Multi-stage build (Node.js → Python)
 - `start.sh` - Container startup script  
-- `vite.config.prod.ts` - Production build configuration
-- `azure-containerapp.yaml` - Container App resource definition
-- `deploy.sh` - Automated deployment script
+- `vite.config.prod.ts` - Production build configuration (`base: "/static/"`)
+- `azure-containerapp.yaml` - Container App resource definition (reference only — `deploy.sh` is the primary deployment mechanism)
+- `deploy.sh` - Automated deployment script (builds, pushes, deploys, assigns RBAC)
+- `DEPLOYMENT.md` - Comprehensive deployment guide with `azd` instructions
 - `.dockerignore` - Exclude development files from build
 
 #### Smart Conditional Logic
@@ -961,7 +1034,16 @@ The production features only activate in containerized environments:
 
 #### Deployment Steps
 
-1. **Build and Push Container** (Automated Build):
+For a comprehensive deployment guide including `azd` support, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+1. **Automated deployment with `deploy.sh`** (recommended):
+   ```bash
+   # Fill in .env with all required variables (see env.sample), then:
+   ./deploy.sh
+   ```
+   The script builds the Docker image, pushes to ACR, creates/updates the Container App, enables managed identity, and assigns RBAC roles automatically.
+
+2. **Manual build and push**:
    ```bash
    docker build -t yourregistry.azurecr.io/voice-live-avatar:latest .
    docker push yourregistry.azurecr.io/voice-live-avatar:latest
@@ -979,7 +1061,7 @@ The production features only activate in containerized environments:
    > cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
    > ```
 
-3. **Deploy to Azure Container Apps**:
+3. **Deploy to Azure Container Apps** (manual alternative to `deploy.sh`):
    ```bash
    az containerapp create \
      --resource-group your-rg \
@@ -991,14 +1073,15 @@ The production features only activate in containerized environments:
    ```
 
 #### Environment Variables for Production
-Configure these secrets in Azure Container Apps:
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_SEARCH_API_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_SEARCH_ENDPOINT`
-- `AZURE_VOICE_AVATAR_ENABLED=true`
-- `AZURE_VOICE_AVATAR_CHARACTER=lisa`
-- `AZURE_VOICE_AVATAR_STYLE=casual-sitting`
+Configure these in Azure Container Apps (the `deploy.sh` script sets them from your `.env`):
+- `AZURE_VOICE_LIVE_ENDPOINT` – Voice Live endpoint
+- `VOICE_LIVE_MODEL` – Realtime model name (e.g. `gpt-realtime`)
+- `AZURE_OPENAI_API_KEY` – API key (or use managed identity)
+- `AZURE_VOICE_AVATAR_CHARACTER` – Avatar persona (e.g. `lisa`)
+- `AZURE_VOICE_AVATAR_CUSTOMIZED` – `true` for custom-trained avatars
+- `AZURE_VOICE_AVATAR_WIDTH` / `AZURE_VOICE_AVATAR_HEIGHT` / `AZURE_VOICE_AVATAR_BITRATE` – Avatar video settings
+- `AZURE_TTS_VOICE` – Neural TTS voice name
+- `AZURE_VOICE_SOURCE` – Voice source mode (`auto`, `avatar`, `custom`, `standard`)
 
 #### Production Benefits
 - **Performance**: Single container, no proxy overhead
@@ -1029,12 +1112,8 @@ This design ensures you can develop locally with the full-featured development e
 - **Authentication**: Add Azure AD App Service auth or Entra ID between browser ↔ backend
 - **Network Resilience**: Configure TURN servers for avatar stream across restrictive networks
 - **Monitoring**: Instrument backend with Application Insights for latency + error tracking
-
-- Frontend worker for audio processing (AudioWorklet) to reduce latency.
-- Persist conversation state for call log analysis payloads.
-- Add authentication between browser ↔ backend (Azure AD App Service auth or Entra ID).
-- Use a TURN server for the avatar stream when operating across restrictive networks.
-- Instrument backend with Application Insights for latency + error tracking.
+- **Input Validation**: Add size limits on text and SDP inputs (Pydantic `Field(max_length=...)`)
+- **Rate Limiting**: Add per-IP rate limits on session creation and avatar negotiation paths
 
 ## References
 
