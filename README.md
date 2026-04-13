@@ -3,7 +3,7 @@
 This solution demonstrates the use case where:
 
 1) A Customer:
-- browses through the Catalog, Orders products
+- asks product and policy questions through the knowledge tool
 - Provides a destination address and has a Shipment Order created for the purchase
 - Asks queries around Contoso Retail's policies and product support
 
@@ -33,7 +33,7 @@ Here is the high level view of the architecture used in the solution. ![architec
 ### Key Components
 
 - **Frontend (`frontend/`)** – Vite + React client that captures user audio, streams PCM chunks to the backend over WebSocket, renders assistant audio locally, and establishes direct WebRTC connections for avatar video streaming. Supports two avatar rendering modes: Voice Live avatar (default) and Speech SDK avatar (when `AZURE_VOICE_SOURCE=avatar`). Includes custom background rendering with chroma-key support.
-- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions with automatic idle reaping, handles function calls (Foundry Agent or Azure AI Search, shipment orders, call log analysis), and facilitates WebRTC SDP negotiation for avatar connections.
+- **Backend (`backend/`)** – FastAPI service that acts as a WebSocket proxy between the frontend and Azure Voice Live API, manages sessions with automatic idle reaping, handles function calls (Foundry Agent QnA, shipment orders, call log analysis), and facilitates WebRTC SDP negotiation for avatar connections.
 - **Azure Voice Live API** – Microsoft's realtime AI service that acts as a gateway to GPT-4 Realtime Model, processes audio, generates responses, and provides avatar video streams via WebRTC.
 
 
@@ -61,7 +61,7 @@ graph TB
             subgraph Backend["🐍 Backend Server"]
                 FastAPI["🚀 FastAPI Application<br/>ASGI Server (uvicorn)<br/>- Async request handling<br/>- WebSocket support<br/>- Non-blocking I/O<br/>- Python async/await"]
                 SessionMgr["📋 Session Manager<br/>- WebSocket connections<br/>- Session lifecycle<br/>- Audio proxy"]
-                Tools["🛠️ Function Tools<br/>- Product search<br/>- Order processing<br/>- QnA retrieval"]
+                Tools["🛠️ Function Tools<br/>- Foundry Agent QnA<br/>- Shipment order creation<br/>- Call log analysis"]
             end
         end
     end
@@ -90,7 +90,7 @@ graph TB
             ConversationFlow["💬 Conversation Analysis App<br/>🤖 Agent Workflow:<br/>- Conversation parsing<br/>- Sentiment analysis<br/>- Quality scoring<br/>- Performance metrics"]
         end
         
-        AISearch["🔍 Azure AI Search<br/>- Vector search<br/>- Semantic search<br/>- QnA knowledge base<br/>- Customer manuals"]
+        FoundryAgent["🧩 Foundry Agent (Responses API)<br/>- Grounded QnA<br/>- Product/policy answers"]
     end
 
     %% Data Storage Layer
@@ -128,7 +128,7 @@ graph TB
     FastAPI <-->|"SDP Exchange<br/>base64 encoded"| Avatar
 
     %% Function call integrations
-    Tools <-->|"🔍 REST API<br/>Search queries<br/>Knowledge retrieval"| AISearch
+    Tools <-->|"🔍 REST API<br/>Search queries<br/>Knowledge retrieval"| FoundryAgent
     Tools <-->|"🛍️ REST API<br/>Product searches<br/>Order creation"| ContosoAPI
     Tools <-->|"⚡ HTTP Webhook<br/>Shipment requests<br/>Conversation data"| LogicApps
 
@@ -147,7 +147,7 @@ graph TB
     class UserDevice,Browser,Microphone,Speakers,Camera userClass
     class ACA,Container,OpenAI,VoiceLive azureClass
     class Frontend,Backend,ViteServer,ReactApp,FastAPI,SessionMgr,Tools containerClass
-    class GPTRealtime,Avatar,TTS,AISearch aiClass
+    class GPTRealtime,Avatar,TTS,FoundryAgent aiClass
     class BusinessServices,ContosoAPI,LogicApps,ProductAPI,OrderAPI,ShipmentFlow,ConversationFlow businessClass
     class DataLayer,CosmosDB,SQLDatabase dataClass
 ```
@@ -171,7 +171,7 @@ graph TB
 #### 🤖 Business process automation Workflows / RAG
 - **Shipment Logic App Agent**: Analyzes orders, validates data, creates shipping labels, and updates tracking information
 - **Conversation Analysis Agent**: Azure Logic App Reviews complete conversations, performs sentiment analysis, generates quality scores with justification, and stores insights for continuous improvement
-- **Knowledge Retrieval**: Azure AI Search is used to reason over manuals and help respond to Customer queries on policies, products
+- **Knowledge Retrieval**: A Foundry Agent (Responses API via `AZURE_AGENT_ENDPOINT`) answers customer questions using grounded knowledge
 
 
 ### KEY COMMUNICATION FLOWS:
@@ -211,8 +211,7 @@ GPT Realtime → FastAPI Tools → Business APIs → Response → GPT Realtime
 
 1. **AI Decision**: GPT-4 Realtime Model (accessed via Azure Voice Live API) determines when to call functions based on conversation
 2. **Function Execution**: Backend receives function calls from Azure Voice Live API and executes them:
-   - Azure AI Search for knowledge queries
-   - E-commerce APIs for product searches and orders
+    - Foundry Agent Responses API for knowledge queries
    - Logic Apps for shipments and call logging
 3. **Result Return**: Backend sends function results back to Azure Voice Live API
 4. **Response Generation**: GPT-4 Realtime Model (via Azure Voice Live API) incorporates results into conversational response
@@ -256,6 +255,9 @@ This design provides the best of both worlds:
 
 
 ## Business Services Integration
+
+> Runtime note: The backend in this repository directly calls only three external tool endpoints: Foundry Agent (`AZURE_AGENT_ENDPOINT`), Shipment Logic App (`LOGIC_APP_URL_SHIPMENT_ORDERS`), and Call Analysis Logic App (`LOGIC_APP_URL_CALL_LOG_ANALYSIS`).
+> The Contoso e-commerce API and data stores shown below are solution-context components and are not invoked directly by backend tool functions in this repo.
 
 The architecture diagram shows several business services that work together to provide a complete retail e-commerce experience. **Note: The code for these business service components is not included in this repository**, but the details and implementation guidance are provided below. Function calling is used to execute these Business Services.
 
@@ -366,11 +368,11 @@ Here is a Call log Analysis document stored in Azure CosmosDB
 
 ```
 
-#### 🔍 Knowledge Base Integration (Foundry Agent / Azure AI Search)
+#### 🔍 Knowledge Base Integration (Foundry Agent)
 
 **Purpose**: Provides intelligent search capabilities for customer support and product knowledge.
 
-The `perform_search_based_qna` tool invokes a **Foundry Agent** (Azure AI Foundry Responses API) when `AZURE_AGENT_ENDPOINT` is configured. The agent is called with the user's query and returns grounded answers from its connected knowledge sources. Authentication uses `DefaultAzureCredential`.
+The `perform_search_based_qna` tool invokes a **Foundry Agent** (Azure AI Foundry Responses API) using `AZURE_AGENT_ENDPOINT`. The agent is called with the user's query and returns grounded answers from its connected knowledge sources. Authentication uses `DefaultAzureCredential`.
 
 ### Function Tools Reference
 
@@ -389,9 +391,9 @@ The backend registers three function tools that GPT-4 Realtime can call during a
 - Node.js 22+
 - Azure resources:
   - Speech resource enabled for Voice Live API
-  - Foundry Agent for product knowledge QnA (via `AZURE_AGENT_ENDPOINT`), **or** Azure AI Search service
+    - Foundry Agent for product knowledge QnA (via `AZURE_AGENT_ENDPOINT`)
   - Logic Apps for shipments and call log analysis
-  - Contoso retail sample APIs or your equivalent business APIs (optional, for the e-commerce tool)
+    - Optional: Contoso retail sample APIs or your equivalent business APIs (used only for optional API warmup via `ECOM_API_URL`)
 - Authentication via either `DefaultAzureCredential` (Managed Identity, Visual Studio Code sign-in, or Azure CLI login) **or** an Azure OpenAI API key via `AZURE_OPENAI_API_KEY`.
 
 ### Configuration
@@ -433,7 +435,7 @@ Key settings:
 
 **Foundry Agent / Knowledge base**:
 
-- `AZURE_AGENT_ENDPOINT` – When set, the `perform_search_based_qna` tool calls a Foundry Agent (Responses API) instead of Azure AI Search. Format: `https://<resource>.services.ai.azure.com/api/projects/<project>/applications/<agent>/protocols/openai/responses?api-version=2025-11-15-preview`
+- `AZURE_AGENT_ENDPOINT` – The `perform_search_based_qna` tool calls this Foundry Agent (Responses API) endpoint. Format: `https://<resource>.services.ai.azure.com/api/projects/<project>/applications/<agent>/protocols/openai/responses?api-version=2025-11-15-preview`
 
 **Business service endpoints**:
 

@@ -15,8 +15,8 @@ spec:
     secrets:
       - name: azure-openai-key
         value: "" # Set via Azure CLI or Portal
-      - name: azure-search-key
-        value: "" # Set via Azure CLI or Portal
+      - name: speech-key
+        value: "" # Optional; required when AZURE_VOICE_SOURCE=avatar
   template:
     containers:
       - name: voice-live-avatar
@@ -25,22 +25,28 @@ spec:
           cpu: 1.0
           memory: 2Gi
         env:
-          - name: AZURE_OPENAI_ENDPOINT
-            value: "https://<your-openai-resource>.openai.azure.com/"
+          - name: AZURE_VOICE_LIVE_ENDPOINT
+            value: "https://<your-voice-live-resource>.cognitiveservices.azure.com/"
+          - name: VOICE_LIVE_MODEL
+            value: "gpt-realtime"
           - name: AZURE_OPENAI_API_KEY
             secretRef: azure-openai-key
-          - name: AZURE_OPENAI_DEPLOYMENT_NAME
-            value: "gpt-4o-realtime-preview"
-          - name: AZURE_SEARCH_ENDPOINT
-            value: "https://<your-search-service>.search.windows.net"
-          - name: AZURE_SEARCH_API_KEY
-            secretRef: azure-search-key
-          - name: AZURE_VOICE_AVATAR_ENABLED
-            value: "true"
+          - name: AZURE_SPEECH_KEY
+            secretRef: speech-key
+          - name: AZURE_VOICE_SOURCE
+            value: "auto"
           - name: AZURE_VOICE_AVATAR_CHARACTER
             value: "lisa"
           - name: AZURE_VOICE_AVATAR_STYLE
             value: "casual-sitting"
+          - name: AZURE_AGENT_ENDPOINT
+            value: "https://<resource>.services.ai.azure.com/api/projects/<project>/applications/<agent>/protocols/openai/responses?api-version=2025-11-15-preview"
+          - name: LOGIC_APP_URL_SHIPMENT_ORDERS
+            value: "https://<your-logic-app-shipment-url>"
+          - name: LOGIC_APP_URL_CALL_LOG_ANALYSIS
+            value: "https://<your-logic-app-call-analysis-url>"
+          - name: ECOM_API_URL
+            value: "https://<optional-ecom-api-host>"
         probes:
           - type: Liveness
             httpGet:

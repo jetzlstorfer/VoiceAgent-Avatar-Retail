@@ -2,6 +2,9 @@
 
 This guide will help you deploy the Voice Agent Avatar Retail application to Azure using Azure Developer CLI (azd).
 
+> Current state note: the active deployment path in this repository is `./deploy.sh`.
+> It deploys the containerized app to Azure Container Apps and does not provision Azure AI Search, Cosmos DB, or Azure SQL resources.
+
 ## 🎯 What Gets Deployed
 
 This deployment creates a complete production-ready infrastructure on Azure:
@@ -9,14 +12,13 @@ This deployment creates a complete production-ready infrastructure on Azure:
 ### Core Services
 - **Azure Container Apps** - Hosts the FastAPI backend + React frontend
 - **Azure Container Registry** - Stores Docker images
-- **Azure OpenAI Service** - GPT-4 Realtime model with Voice Live API
+- **Azure AI Services / Voice Live endpoint** - GPT Realtime + Voice Live connection used by the app
 - **Azure AI Speech** - Avatar characters and voice synthesis
-- **Azure AI Search** - Knowledge base for QnA retrieval
 
 ### Business Services
-- **Azure Logic Apps** - Shipment workflow & conversation analysis
-- **Azure Cosmos DB** - Conversation history & analysis storage
-- **Azure SQL Database** - Order & shipment tracking
+- **Foundry Agent (Responses API)** - Knowledge QnA tool (`AZURE_AGENT_ENDPOINT`)
+- **Azure Logic Apps** - Shipment workflow & conversation analysis webhooks
+- **Optional external e-commerce API** - Warmup-only integration via `ECOM_API_URL`
 
 ### Monitoring
 - **Azure Monitor** - Log Analytics workspace
@@ -119,12 +121,12 @@ Common error: `avatar_verification_failed` means the character doesn't exist in 
 
 Not all Azure regions support all features. Recommended regions:
 
-| Region | OpenAI Realtime | Speech Avatar | AI Search |
-|--------|----------------|---------------|-----------|
-| **eastus2** | ✅ | ✅ | ✅ |
-| **westus2** | ✅ | ✅ | ✅ |
-| **northeurope** | ✅ | ✅ | ✅ |
-| **swedencentral** | ✅ | ⚠️ Limited | ✅ |
+| Region | OpenAI Realtime | Speech Avatar |
+|--------|----------------|---------------|
+| **eastus2** | ✅ | ✅ |
+| **westus2** | ✅ | ✅ |
+| **northeurope** | ✅ | ✅ |
+| **swedencentral** | ✅ | ⚠️ Limited |
 
 ## 📦 Understanding the Deployment Process
 
@@ -142,9 +144,6 @@ infra/
     ├── container-registry.bicep  # Container Registry
     ├── openai.bicep             # Azure OpenAI with GPT-4 Realtime
     ├── speech.bicep             # Azure AI Speech
-    ├── search.bicep             # Azure AI Search
-    ├── cosmos.bicep             # Cosmos DB + containers
-    ├── sql.bicep                # SQL Server + database
     ├── logic-apps.bicep         # Logic App workflows
     ├── container-apps-environment.bicep  # Container Apps env
     └── container-app.bicep      # Container App deployment
@@ -248,39 +247,18 @@ Expected roles:
 - `Cognitive Services User`
 - `Cognitive Services OpenAI User`
 
-### 2. Initialize SQL Database
+### 2. Configure Tool Endpoints
 
-The database schema is created automatically by the post-deployment script, but you can also run it manually:
+After deployment, ensure the app has values for:
 
-```bash
-# Connect to SQL Database
-az sql db show-connection-string \
-  --client sqlcmd \
-  --name $(azd env get-value AZURE_SQL_DATABASE_NAME) \
-  --server $(azd env get-value AZURE_SQL_SERVER_NAME)
+- `AZURE_AGENT_ENDPOINT`
+- `LOGIC_APP_URL_SHIPMENT_ORDERS`
+- `LOGIC_APP_URL_CALL_LOG_ANALYSIS`
+- Optional: `ECOM_API_URL`
 
-# Execute schema from infra/post-deploy.sh
-```
+You can set or update these with `az containerapp update --set-env-vars ...` and then validate via container logs.
 
-### 3. Set Up AI Search Index
-
-```bash
-# Option A: Use Azure Portal
-# 1. Navigate to Azure AI Search in Azure Portal
-# 2. Create a new index with the name from AZURE_SEARCH_INDEX_NAME
-# 3. Upload your documents (product manuals, FAQs, policies)
-# 4. Configure semantic search
-
-# Option B: Use Azure SDK (example script)
-cd backend
-python -c "
-from azure.search.documents.indexes import SearchIndexClient
-from azure.core.credentials import AzureKeyCredential
-# ... create index programmatically
-"
-```
-
-### 4. Test the Application
+### 3. Test the Application
 
 ```bash
 # Open the application URL in your browser
@@ -421,29 +399,25 @@ Estimated monthly costs (Pay-as-you-go pricing):
 | Container Apps | 1-2 replicas, 1 vCPU, 2GB RAM | $50-100 |
 | Azure OpenAI | GPT-4 Realtime, 100K TPM | $100-500 (usage-based) |
 | Azure AI Speech | Voice + Avatar | $50-200 (usage-based) |
-| Azure AI Search | Standard tier | $250 |
-| Cosmos DB | 400 RU/s | $25 |
-| SQL Database | Basic tier | $5 |
+| Foundry Agent / Knowledge host | Depends on connected project/services | usage-based |
 | Logic Apps | Standard | $10-50 (usage-based) |
 | Monitoring | Log Analytics + App Insights | $10-50 |
-| **Total** | | **$500-1,200/month** |
+| **Total** | | **$220+/month + usage-based tool backends** |
 
 > **Note**: Actual costs depend heavily on usage. OpenAI and Speech are pay-per-use.
 
 ### Cost Optimization Tips
 
 1. **Use Azure Dev/Test pricing** if eligible
-2. **Enable Azure Hybrid Benefit** for SQL if you have licenses
-3. **Scale down** Container Apps when not in use: `az containerapp update --min-replicas 0`
-4. **Use Azure Free tier** for development: Some services offer free tiers
-5. **Monitor usage** with Azure Cost Management
+2. **Scale down** Container Apps when not in use: `az containerapp update --min-replicas 0`
+3. **Use Azure Free tier** for development: Some services offer free tiers
+4. **Monitor usage** with Azure Cost Management
 
 ## 🔗 Additional Resources
 
 - [Azure Developer CLI Documentation](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
 - [Azure OpenAI Voice Live API](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-api-reference)
 - [Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)
-- [Azure AI Search Documentation](https://learn.microsoft.com/azure/search/)
 - [Bicep Documentation](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
 
 ## 📞 Support
