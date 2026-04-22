@@ -4,5 +4,12 @@
     "ghcr.io/azure/azure-dev/azd:latest": {},
     "ghcr.io/devcontainers/features/azure-cli:latest": {}
   },
-  "postCreateCommand": "bash .devcontainer/post-create.sh"
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Voice Agent",
+      "onAutoForward": "openPreview"
+    }
+  }
 }
