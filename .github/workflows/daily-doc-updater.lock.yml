@@ -591,16 +591,17 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          # Pre-write the real COPILOT_GITHUB_TOKEN to the gh CLI hosts file so the
-          # copilot CLI can find valid auth credentials when running in AWF chroot mode.
+          # Pre-write the real COPILOT_GITHUB_TOKEN to gh CLI hosts files so the
+          # Copilot CLI can find valid auth credentials when running in AWF chroot mode.
           # AWF replaces env-var tokens with placeholder values inside the container,
-          # but does not modify on-disk gh config files.  The copilot CLI is configured
-          # with XDG_CONFIG_HOME=/home/runner, so it looks for gh auth at
-          # /home/runner/gh/hosts.yml when running under AWF's chroot.
+          # but does not modify on-disk gh config files.
           if [ -n "${COPILOT_GITHUB_TOKEN}" ]; then
-            mkdir -p /home/runner/gh
+            mkdir -p /home/runner/gh /home/runner/.config/gh
             printf 'github.com:\n    oauth_token: %s\n    git_protocol: https\n' \
               "${COPILOT_GITHUB_TOKEN}" > /home/runner/gh/hosts.yml
+            printf 'github.com:\n    oauth_token: %s\n    git_protocol: https\n' \
+              "${COPILOT_GITHUB_TOKEN}" > /home/runner/.config/gh/hosts.yml
+            chmod 600 /home/runner/gh/hosts.yml /home/runner/.config/gh/hosts.yml
             echo "Copilot CLI authentication configured"
           else
             echo "COPILOT_GITHUB_TOKEN is not set; skipping gh auth pre-configuration"
@@ -666,6 +667,7 @@ jobs:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
+          GH_CONFIG_DIR: /home/runner/gh
           XDG_CONFIG_HOME: /home/runner
       - name: Detect inference access error
         id: detect-inference-error
