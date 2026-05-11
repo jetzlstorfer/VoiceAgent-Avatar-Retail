@@ -587,6 +587,24 @@ jobs:
       - name: Clean git credentials
         continue-on-error: true
         run: bash ${RUNNER_TEMP}/gh-aw/actions/clean_git_credentials.sh
+      - name: Configure Copilot CLI authentication
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Pre-write the real COPILOT_GITHUB_TOKEN to the gh CLI hosts file so the
+          # copilot CLI can find valid auth credentials when running in AWF chroot mode.
+          # AWF replaces env-var tokens with placeholder values inside the container,
+          # but does not modify on-disk gh config files.  The copilot CLI is configured
+          # with XDG_CONFIG_HOME=/home/runner, so it looks for gh auth at
+          # /home/runner/gh/hosts.yml when running under AWF's chroot.
+          if [ -n "${COPILOT_GITHUB_TOKEN}" ]; then
+            mkdir -p /home/runner/gh
+            printf 'github.com:\n    oauth_token: %s\n    git_protocol: https\n' \
+              "${COPILOT_GITHUB_TOKEN}" > /home/runner/gh/hosts.yml
+            echo "Copilot CLI authentication configured"
+          else
+            echo "COPILOT_GITHUB_TOKEN is not set; skipping gh auth pre-configuration"
+          fi
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
