@@ -32,7 +32,7 @@ Before you begin, ensure you have:
 2. **Azure Developer CLI (azd)** - [Install azd](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 3. **Azure CLI** - [Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
 4. **Docker** - [Install Docker](https://docs.docker.com/get-docker/)
-5. **Node.js 20+** - For building the frontend
+5. **Node.js 26+** - For building the frontend
 6. **Git** - For version control
 
 ### Verify Installations
