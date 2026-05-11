@@ -36,10 +36,10 @@ tools:
     toolsets: [default]
   edit:
   bash:
-    - "find docs -name '*.md' -o -name '*.mdx'"
+    - "find docs -name \"*.md\" -o -name \"*.mdx\""
     - "find docs -maxdepth 1 -ls"
-    - "find docs -name '*.md' -exec cat {} +"
-    - "grep -r '*' docs"
+    - "find docs -name \"*.md\" -exec cat {} +"
+    - "grep -r \"*\" docs"
     - "git"
 
 timeout-minutes: 45
