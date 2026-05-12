@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import uuid
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
