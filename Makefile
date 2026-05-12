@@ -9,7 +9,7 @@ UVICORN := $(VENV_DIR)/bin/uvicorn
 FRONTEND_DIST := $(FRONTEND_DIR)/dist
 BACKEND_STATIC := $(BACKEND_DIR)/static
 
-.PHONY: help install run run-copy copy-frontend lint-backend clean
+.PHONY: help install run run-copy copy-frontend lint-backend lint-frontend clean
 
 help:
 	@echo "Available targets:"
@@ -18,6 +18,7 @@ help:
 	@echo "  make run-copy      Copy frontend dist to backend/static and run backend (skip install)"
 	@echo "  make copy-frontend Sync frontend/dist into backend/static"
 	@echo "  make lint-backend  Run Ruff linter on backend Python code"
+	@echo "  make lint-frontend Run ESLint on frontend TypeScript/React code"
 	@echo "  make clean         Remove backend virtual environment"
 
 $(VENV_DIR)/bin/python:
@@ -54,6 +55,9 @@ lint-backend: install
 		$(PIP) install ruff; \
 	fi
 	$(VENV_DIR)/bin/ruff check $(BACKEND_DIR)/app $(BACKEND_DIR)/test_avatar_characters.py
+
+lint-frontend:
+	cd $(FRONTEND_DIR) && npm install && npm run lint
 
 clean:
 	rm -rf $(VENV_DIR)
