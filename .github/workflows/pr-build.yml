@@ -40,3 +40,6 @@ jobs:
 
       - name: Install backend dependencies
         run: make install
+
+      - name: Lint backend
+        run: make lint-backend

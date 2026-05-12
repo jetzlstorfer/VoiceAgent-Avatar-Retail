@@ -131,7 +131,7 @@ async def test_avatar_character(character_name: str, style: str | None) -> tuple
             
             # CRITICAL: Wait for ICE gathering to complete
             # The service expects a complete SDP with all ICE candidates
-            print(f"[ICE gathering]", end=" ", flush=True)
+            print("[ICE gathering]", end=" ", flush=True)
             max_wait = 100  # 5 seconds max
             wait_count = 0
             ice_completed = pc.iceGatheringState == "complete"
@@ -261,7 +261,7 @@ async def main():
         name, is_valid, message = await test_avatar_character(character, style)
         results.append((name, is_valid, message))
         if is_valid:
-            print(f"[VALID]")  # Changed from ✓ for Windows console
+            print("[VALID]")  # Changed from ✓ for Windows console
         else:
             print(f"[X] {message}")  # Changed from ✗ for Windows console
         # Small delay to avoid rate limiting
@@ -279,11 +279,11 @@ async def main():
         first_valid = valid_chars[0][0]
         if "+" in first_valid:
             char, style = first_valid.split("+")
-            print(f"\nUpdate your .env file:")
+            print("\nUpdate your .env file:")
             print(f"AZURE_VOICE_AVATAR_CHARACTER={char}")
             print(f"AZURE_VOICE_AVATAR_STYLE={style}")
         else:
-            print(f"\nUpdate your .env file:")
+            print("\nUpdate your .env file:")
             print(f"AZURE_VOICE_AVATAR_CHARACTER={first_valid}")
     else:
         print("  No valid characters found from the common list.")
