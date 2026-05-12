@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import os
 import requests
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from .session_manager import SessionManager
@@ -49,6 +50,21 @@ repo_env = Path(__file__).resolve().parents[2] / ".env"
 backend_env = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(repo_env, override=False)
 load_dotenv(backend_env, override=False)
+
+
+def _resolve_speech_region() -> str:
+    configured_region = os.getenv("REGION", "").strip()
+    if configured_region:
+        return configured_region
+
+    endpoint = os.getenv("AZURE_VOICE_LIVE_ENDPOINT", "").strip()
+    if endpoint:
+        host = urlparse(endpoint).hostname or endpoint
+        first_label = host.split(".", 1)[0].strip()
+        if first_label:
+            return first_label
+
+    return "westus2"
 
 
 async def warmup_ecom_api():
@@ -195,7 +211,7 @@ async def get_speech_token(session_id: str) -> SpeechTokenResponse:
     # Prefer AZURE_SPEECH_KEY (speech resource key) for Speech SDK avatar.
     # Falls back to AZURE_OPENAI_API_KEY, then DefaultAzureCredential.
     speech_key = os.getenv("AZURE_SPEECH_KEY", "").strip() or os.getenv("AZURE_OPENAI_API_KEY", "").strip()
-    region = os.getenv("REGION", "westus2")
+    region = _resolve_speech_region()
 
     ice_servers: list[IceServer] = []
 
