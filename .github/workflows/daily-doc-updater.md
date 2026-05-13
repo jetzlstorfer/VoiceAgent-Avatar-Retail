@@ -29,6 +29,7 @@ safe-outputs:
     reviewers: [copilot]
     draft: false
     auto-merge: true
+    allowed-files: [README.md]
 
 tools:
   cache-memory: true
