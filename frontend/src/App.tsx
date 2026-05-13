@@ -533,7 +533,7 @@ function App() {
 
     useEffect(() => {
         createSession(true, language).catch((err: unknown) => appendLog(`Error creating session: ${String(err)}`));
-    }, [appendLog, createSession]);
+    }, [appendLog, createSession, language]);
 
     // Best-effort session close signal on page unload
     useEffect(() => {
@@ -605,7 +605,7 @@ function App() {
         processorRef.current = processor;
         setMicActive(true);
         appendLog("Microphone streaming started");
-    }, [appendLog]);
+    }, [appendLog, ensurePlaybackContext]);
 
     const stopMic = useCallback(() => {
         teardownMic();
