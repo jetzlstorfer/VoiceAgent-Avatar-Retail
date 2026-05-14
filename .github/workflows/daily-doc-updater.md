@@ -29,7 +29,7 @@ safe-outputs:
     reviewers: [copilot]
     draft: false
     auto-merge: true
-    allowed-files: [README.md]
+    allowed-files: [README.md, DEPLOYMENT.md, PRE_DEPLOYMENT_CHECKLIST.md]
 
 tools:
   cache-memory: true
