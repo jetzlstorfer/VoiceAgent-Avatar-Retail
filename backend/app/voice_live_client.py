@@ -543,7 +543,7 @@ class VoiceLiveSession:
                     await self._broadcast({"type": "error", "payload": event})
                 elif event_type == "response.audio.delta":
                     delta = event.get("delta")
-                    logger.info(f"[{self.session_id}] Received audio delta, length: {len(delta) if delta else 0}")
+                    # logger.info(f"[{self.session_id}] Received audio delta, length: {len(delta) if delta else 0}")
                     await self._broadcast({"type": "assistant_audio_delta", "delta": delta})
                 elif event_type == "response.audio.done":
                     logger.info(f"[{self.session_id}] Audio response done")
