@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-PYTHON ?= python
+PYTHON ?= python3
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 VENV_DIR := $(BACKEND_DIR)/.venv
@@ -22,6 +22,10 @@ help:
 	@echo "  make clean         Remove backend virtual environment"
 
 $(VENV_DIR)/bin/python:
+	@if [ -d "$(VENV_DIR)" ] && [ ! -x "$(VENV_DIR)/bin/python" ]; then \
+		echo "Detected invalid virtual environment at $(VENV_DIR); recreating it."; \
+		rm -rf "$(VENV_DIR)"; \
+	fi
 	$(PYTHON) -m venv $(VENV_DIR)
 
 install: $(VENV_DIR)/bin/python
