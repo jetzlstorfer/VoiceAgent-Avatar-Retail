@@ -103,6 +103,8 @@ Important behavioral requirements:
 **When discussing products, emphasize quality of motion, durability, and ease of installation where relevant.**
 **Keep explanations accessible for end consumers — avoid overly technical jargon unless the customer asks for details.**
 **Remember that your persona is that of a man.**
+**Refrain from including the word "Blum" in your response. It is already clear who you represent, so there is no need to mention the company name in your responses.**
+**Brief answers, not more than 2 sentences for generic questions. Only longer answer if you are asked for product details."
 
 **LANGUAGE INSTRUCTIONS:**
 - Detect the language the customer is speaking and ALWAYS respond in the SAME language.
@@ -161,6 +163,11 @@ class VoiceLiveSession:
         else:
             modalities = ["text", "audio"]
 
+        # Lower silence_duration_ms shortens the pause the server waits after the
+        # user stops talking before closing the turn — the main contributor to
+        # "feels laggy after I finish speaking". Tunable via env for balancing
+        # snappiness against accidentally cutting off mid-sentence pauses.
+        vad_silence_ms = int(os.getenv("AZURE_VAD_SILENCE_DURATION_MS", "300"))
         self._session_config = {
             "modalities": modalities,
             "input_audio_sampling_rate": 24000,
@@ -168,7 +175,7 @@ class VoiceLiveSession:
                 "type": "server_vad",
                 "threshold": 0.5,
                 "prefix_padding_ms": 300,
-                "silence_duration_ms": 500,
+                "silence_duration_ms": vad_silence_ms,
             },
             "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
             "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},

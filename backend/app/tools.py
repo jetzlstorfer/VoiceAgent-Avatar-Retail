@@ -20,12 +20,29 @@ def _ensure_env(var_name: str) -> str:
     return value
 
 
-def _get_agent_token() -> str:
-    """Get an access token for the Foundry Agent using DefaultAzureCredential."""
+def _get_agent_headers() -> Dict[str, str]:
+    """Get auth headers for the Foundry Agent endpoint.
+    
+    Supports two modes:
+    1. API key via AZURE_AGENT_API_KEY env var
+    2. Bearer token via DefaultAzureCredential (fallback)
+    """
+    api_key = os.getenv("AZURE_AGENT_API_KEY", "").strip()
+    if api_key:
+        logger.info("Using API key authentication for agent endpoint")
+        return {
+            "api-key": api_key,
+            "Content-Type": "application/json",
+        }
+    
+    logger.info("Using DefaultAzureCredential for agent endpoint")
     from azure.identity import DefaultAzureCredential
     credential = DefaultAzureCredential()
     token = credential.get_token("https://ai.azure.com/.default")
-    return token.token
+    return {
+        "Authorization": f"Bearer {token.token}",
+        "Content-Type": "application/json",
+    }
 
 
 def perform_search_based_qna(query: str) -> str:
@@ -33,11 +50,7 @@ def perform_search_based_qna(query: str) -> str:
     logger.info("perform_search_based_qna (agent) - query: %s", query)
     agent_endpoint = _ensure_env("AZURE_AGENT_ENDPOINT")
 
-    token = _get_agent_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+    headers = _get_agent_headers()
     payload = {
         "input": query,
     }
@@ -70,6 +83,20 @@ def create_delivery_order(order_id: str, destination: str) -> str:
     return json.dumps(_post_json(api_url, {"order_id": order_id, "destination": destination}))
 
 
+def get_delivery_time() -> str:
+    """Return guidance that delivery time depends on the product and retail partner."""
+    logger.info("get_delivery_time invoked")
+    return json.dumps(
+        {
+            "message": (
+                "Die Lieferzeit kann je nach Produkt und Händler variieren, am besten "
+                "fragen Sie direkt beim Händler nach einer genauen Auskunft. Wenn Sie "
+                "weitere Unterstützung brauchen, stehe ich gerne zur Verfügung."
+            )
+        }
+    )
+
+
 def perform_call_log_analysis(call_log: str) -> str:
     api_url = _ensure_env("LOGIC_APP_URL_CALL_LOG_ANALYSIS")
     try:
@@ -86,7 +113,7 @@ TOOLS_LIST = [
     {
         "type": "function",
         "name": "perform_search_based_qna",
-        "description": "call this function to answer any questions about Blum products, product categories, pricing, availability, technical specifications, installation guides, policies, and general company information. Use this for all product-related queries including searching for products by category or price.",
+        "description": "call this function to answer any questions about Blum products, product categories, pricing, technical specifications, installation guides, policies, and general company information. Use this for all product-related queries including searching for products by category or price.",
         "parameters": {
             "type": "object",
             "properties": {"query": {"type": "string"}},
@@ -108,6 +135,16 @@ TOOLS_LIST = [
     },
     {
         "type": "function",
+        "name": "get_delivery_time",
+        "description": "call this function whenever the user asks about delivery time, shipping time, how long delivery takes, or when an order/product will arrive. It returns guidance that delivery time depends on the product and the retail partner. Relay this answer to the user, respecting their language.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
         "name": "perform_call_log_analysis",
         "description": "call this function to analyze call log based on input call log conversation text",
         "parameters": {
@@ -124,5 +161,6 @@ TOOLS_LIST = [
 AVAILABLE_FUNCTIONS: Dict[str, Callable[..., Any]] = {
     "perform_search_based_qna": perform_search_based_qna,
     "create_delivery_order": create_delivery_order,
+    "get_delivery_time": get_delivery_time,
     "perform_call_log_analysis": perform_call_log_analysis,
 }

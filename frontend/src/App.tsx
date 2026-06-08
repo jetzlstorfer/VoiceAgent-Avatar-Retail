@@ -82,6 +82,86 @@ function downsampleBuffer(buffer: Float32Array, inputRate: number, targetRate: n
     return result;
 }
 
+const MIN_TTS_CHUNK_CHARS = 12;
+
+/**
+ * Strips Markdown formatting so the avatar TTS doesn't read syntax characters
+ * out loud (e.g. "asterisk asterisk bold asterisk asterisk" for `**bold**`).
+ * Keeps the human-readable text content only.
+ */
+function stripMarkdownForSpeech(text: string): string {
+    const cleaned = text
+        // Fenced/inline code: drop backticks, keep contents.
+        .replace(/```[a-zA-Z]*\n?/g, "")
+        .replace(/`([^`]+)`/g, "$1")
+        // Images: ![alt](url) -> alt
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        // Links: [text](url) -> text
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        // Bold/italic: **text** __text__ *text* _text_ -> text
+        .replace(/(\*\*|__)(.*?)\1/g, "$2")
+        .replace(/(\*|_)(.*?)\1/g, "$2")
+        // Strikethrough: ~~text~~ -> text
+        .replace(/~~(.*?)~~/g, "$1")
+        // Leading heading hashes and blockquotes at line start.
+        .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+        .replace(/^\s{0,3}>\s?/gm, "")
+        // List markers at line start: drop the marker but add a period so the
+        // TTS treats each item as its own sentence and pauses between them
+        // (otherwise enumerations run together with no natural break).
+        .replace(/^\s{0,3}[-*+]\s+/gm, "")
+        .replace(/^\s{0,3}\d+[.)]\s+/gm, "")
+        // Any stray emphasis/code markers left over.
+        .replace(/[*_`#]/g, "")
+        .trim();
+
+    if (!cleaned) {
+        return "";
+    }
+    // Ensure the chunk ends with sentence-final punctuation. List items and
+    // headings often have none, which makes the avatar keep going without a
+    // pause; a trailing period restores natural prosody.
+    return /[.!?:;,…]$/.test(cleaned) ? cleaned : cleaned + ".";
+}
+
+/**
+ * Splits streamed transcript text into complete sentences so the avatar can
+ * start speaking as soon as the first sentence is ready, instead of waiting
+ * for the whole response. Any trailing partial sentence is returned as
+ * `remainder` so it can be flushed once more text (or the done event) arrives.
+ */
+function extractSentences(text: string): { sentences: string[]; remainder: string } {
+    const raw: string[] = [];
+    let start = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i];
+        if (ch === "." || ch === "!" || ch === "?" || ch === "…" || ch === "\n") {
+            // Include any trailing closing quotes/brackets in the sentence.
+            let end = i + 1;
+            while (end < text.length && /["')\]]/.test(text[end])) end += 1;
+            // Only treat as a boundary at end-of-buffer or before whitespace,
+            // so decimals (5.5) and "z.B." style tokens aren't split mid-token.
+            if (end >= text.length || /\s/.test(text[end])) {
+                const segment = text.slice(start, end).trim();
+                if (segment) raw.push(segment);
+                start = end;
+                i = end - 1;
+            }
+        }
+    }
+    // Merge very short fragments so the avatar speaks in natural phrases
+    // rather than choppy single words like list markers.
+    const sentences: string[] = [];
+    for (const segment of raw) {
+        if (sentences.length && sentences[sentences.length - 1].length < MIN_TTS_CHUNK_CHARS) {
+            sentences[sentences.length - 1] += " " + segment;
+        } else {
+            sentences.push(segment);
+        }
+    }
+    return { sentences, remainder: text.slice(start) };
+}
+
 function pcm16Base64ToFloat32(b64: string): Float32Array<ArrayBuffer> {
     const binary = atob(b64);
     const len = binary.length / 2;
@@ -171,6 +251,9 @@ function App() {
     const speakingRef = useRef(false);
     const voiceSourceRef = useRef<string>("auto");
     const speakWithSdkRef = useRef<(text: string) => void>(() => {});
+    // Accumulates the un-spoken tail of the current response so complete
+    // sentences can be streamed to the avatar TTS as they arrive.
+    const speechBufferRef = useRef<string>("");
 
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -413,15 +496,30 @@ function App() {
                     case "assistant_transcript_delta":
                         if (typeof data.delta === "string") {
                             setAssistantTranscript((prev: string) => prev + data.delta);
+                            // Stream complete sentences to the avatar TTS as they
+                            // arrive so it starts speaking immediately, instead of
+                            // waiting for the full response (avatar voice sync).
+                            if (voiceSourceRef.current === "avatar" && avatarSynthesizerRef.current) {
+                                speechBufferRef.current += data.delta;
+                                const { sentences, remainder } = extractSentences(speechBufferRef.current);
+                                speechBufferRef.current = remainder;
+                                for (const sentence of sentences) {
+                                    speakWithSdkRef.current(sentence);
+                                }
+                            }
                         }
                         break;
                     case "assistant_transcript_done":
                         if (typeof data.transcript === "string") {
                             setAssistantTranscript(data.transcript);
-                            // When using Speech SDK avatar (voice sync), feed
-                            // completed text to the AvatarSynthesizer for TTS.
+                            // Flush any remaining un-spoken tail of the response.
+                            // Sentences were already streamed on delta events above.
                             if (voiceSourceRef.current === "avatar" && avatarSynthesizerRef.current) {
-                                speakWithSdkRef.current(data.transcript);
+                                const remainder = speechBufferRef.current.trim();
+                                speechBufferRef.current = "";
+                                if (remainder) {
+                                    speakWithSdkRef.current(remainder);
+                                }
                             }
                         }
                         break;
@@ -660,17 +758,19 @@ function App() {
     /** Speak text via Speech SDK AvatarSynthesizer. Queues sentences. */
     const speakWithSdk = useCallback(async (text: string) => {
         const synth = avatarSynthesizerRef.current;
-        if (!synth || !text.trim()) return;
+        // Strip Markdown so the avatar doesn't read syntax like "**" aloud.
+        const speakText = stripMarkdownForSpeech(text).trim();
+        if (!synth || !speakText) return;
 
         // Queue text if already speaking
         if (speakingRef.current) {
-            pendingSpeechRef.current += " " + text;
+            pendingSpeechRef.current += " " + speakText;
             return;
         }
 
         speakingRef.current = true;
         try {
-            const result = await synth.speakTextAsync(text);
+            const result = await synth.speakTextAsync(speakText);
             if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
                 console.warn(`Speech synthesis result: ${SpeechSDK.ResultReason[result.reason]}`);
             }
@@ -857,10 +957,11 @@ function App() {
             speechSdkPcRef.current = null;
         }
         pendingSpeechRef.current = "";
+        speechBufferRef.current = "";
         speakingRef.current = false;
     }, []);
 
-    // ── Voice Live avatar (standard/custom voice) ───────────────────
+    // ── Voice Live avatar (standard/custom voice) ────────────────────
 
     const startAvatar = useCallback(async () => {
         if (!sessionId) {
