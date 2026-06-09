@@ -1,41 +1,40 @@
-version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/backend"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      pip-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      docker-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/frontend"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      npm-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      github-actions-dependencies:
-        patterns:
-          - "*"
+- directory: /backend
+  groups:
+    pip-dependencies:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 5
+  package-ecosystem: pip
+  schedule:
+    interval: weekly
+- directory: /
+  groups:
+    docker-dependencies:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 5
+  package-ecosystem: docker
+  schedule:
+    interval: weekly
+- directory: /frontend
+  groups:
+    npm-dependencies:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 5
+  package-ecosystem: npm
+  schedule:
+    interval: weekly
+- directory: /
+  groups:
+    github-actions-dependencies:
+      patterns:
+      - "*"
+  ignore:
+  - dependency-name: "github/gh-aw-actions/**" # Managed by gh aw compile. Version-locked to the gh-aw compiler; do not bump.
+  open-pull-requests-limit: 5
+  package-ecosystem: github-actions
+  schedule:
+    interval: weekly
+version: 2
