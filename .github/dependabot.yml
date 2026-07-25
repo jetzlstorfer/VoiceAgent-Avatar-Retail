@@ -7,7 +7,7 @@ updates:
   open-pull-requests-limit: 5
   package-ecosystem: pip
   schedule:
-    interval: weekly
+    interval: monthly
 - directory: /
   groups:
     docker-dependencies:
@@ -16,7 +16,7 @@ updates:
   open-pull-requests-limit: 5
   package-ecosystem: docker
   schedule:
-    interval: weekly
+    interval: monthly
 - directory: /frontend
   groups:
     npm-dependencies:
@@ -25,7 +25,7 @@ updates:
   open-pull-requests-limit: 5
   package-ecosystem: npm
   schedule:
-    interval: weekly
+    interval: monthly 
 - directory: /
   groups:
     github-actions-dependencies:
@@ -36,5 +36,5 @@ updates:
   open-pull-requests-limit: 5
   package-ecosystem: github-actions
   schedule:
-    interval: weekly
+    interval: monthly 
 version: 2
