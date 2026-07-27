@@ -4,15 +4,16 @@ This will try common avatar character names and report which ones are accepted.
 Uses proper WebRTC negotiation with aiortc and base64-encoded SDP.
 """
 import asyncio
+import base64
+import json
 import os
 import sys
-import base64
 from pathlib import Path
-from dotenv import load_dotenv
+
 import websockets
-import json
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from azure.identity import DefaultAzureCredential
+from dotenv import load_dotenv
 
 # Load environment variables from repo root and backend root
 repo_env = Path(__file__).resolve().parent.parent / ".env"
@@ -190,7 +191,7 @@ async def test_avatar_character(character_name: str, style: str | None) -> tuple
                     if server_sdp_raw and not server_sdp_raw.startswith("v=0"):
                         try:
                             decoded_text = base64.b64decode(server_sdp_raw).decode()
-                        except Exception:
+                        except (ValueError, TypeError, UnicodeDecodeError):
                             decoded_text = ""
 
                         if decoded_text:
@@ -211,7 +212,7 @@ async def test_avatar_character(character_name: str, style: str | None) -> tuple
                     answer = RTCSessionDescription(sdp=server_sdp, type=answer_type)
                     try:
                         await pc.setRemoteDescription(answer)
-                    except Exception as rtc_error:
+                    except (ValueError, TypeError) as rtc_error:
                         await pc.close()
                         await ws.close()
                         return (f"{character_name}+{style}", False, f"Error setting remote description: {rtc_error}")
@@ -235,9 +236,9 @@ async def test_avatar_character(character_name: str, style: str | None) -> tuple
     except asyncio.TimeoutError:
         await pc.close()
         return (f"{character_name}+{style}", False, "Timeout waiting for response")
-    except Exception as e:
+    except (RuntimeError, OSError, websockets.WebSocketException, ValueError) as e:
         await pc.close()
-        return (f"{character_name}+{style}", False, f"Connection error: {str(e)}")
+        return (f"{character_name}+{style}", False, f"Connection error: {e!s}")
 
 async def main():
     print("=" * 80)

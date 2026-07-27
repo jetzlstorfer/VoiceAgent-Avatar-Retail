@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 import requests
 
@@ -20,7 +21,7 @@ def _ensure_env(var_name: str) -> str:
     return value
 
 
-def _get_agent_headers() -> Dict[str, str]:
+def _get_agent_headers() -> dict[str, str]:
     """Get auth headers for the Foundry Agent endpoint.
     
     Supports two modes:
@@ -71,7 +72,7 @@ def perform_search_based_qna(query: str) -> str:
     return result
 
 
-def _post_json(url: str, payload: Dict[str, Any]) -> str:
+def _post_json(url: str, payload: dict[str, Any]) -> str:
     logger.info("POST %s payload_keys=%s", url, list(payload.keys()))
     response = requests.post(url, json=payload, timeout=30)
     response.raise_for_status()
@@ -158,7 +159,7 @@ TOOLS_LIST = [
 
 ]
 
-AVAILABLE_FUNCTIONS: Dict[str, Callable[..., Any]] = {
+AVAILABLE_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "perform_search_based_qna": perform_search_based_qna,
     "create_delivery_order": create_delivery_order,
     "get_delivery_time": get_delivery_time,

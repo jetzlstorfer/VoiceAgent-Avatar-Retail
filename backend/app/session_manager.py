@@ -5,7 +5,6 @@ import logging
 import os
 import time
 import uuid
-from typing import Dict, Tuple
 
 from .voice_live_client import VoiceLiveSession
 
@@ -19,7 +18,7 @@ class SessionManager:
     """Creates and tracks live sessions for each connected browser client."""
 
     def __init__(self) -> None:
-        self._sessions: Dict[str, Tuple[VoiceLiveSession, float]] = {}  # session_id -> (session, last_activity)
+        self._sessions: dict[str, tuple[VoiceLiveSession, float]] = {}  # session_id -> (session, last_activity)
         self._lock = asyncio.Lock()
         self._reaper_task: asyncio.Task | None = None
 

@@ -1,8 +1,7 @@
 import base64
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
-
 
 TARGET_SAMPLE_RATE = 24000
 INT16_MAX = np.iinfo(np.int16).max
