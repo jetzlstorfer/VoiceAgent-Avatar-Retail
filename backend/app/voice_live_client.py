@@ -8,7 +8,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, ClassVar
 
 import websockets  # type: ignore[import]
 from azure.identity import DefaultAzureCredential
@@ -19,9 +19,10 @@ try:
 except ImportError:  # pragma: no cover - older websockets versions
     WebSocketState = None  # type: ignore[assignment]
 
+from dotenv import load_dotenv
+
 from .audio_utils import float_frame_base64_to_pcm16_base64
 from .tools import AVAILABLE_FUNCTIONS, TOOLS_LIST
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -121,13 +122,13 @@ class VoiceLiveSession:
         self.session_id = session_id
         self.avatar_enabled = avatar_enabled
         self.language = language
-        self.ws: Optional[WebSocketClientProtocol] = None
-        self._listeners: Set[asyncio.Queue] = set()
+        self.ws: WebSocketClientProtocol | None = None
+        self._listeners: set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
-        self._receive_task: Optional[asyncio.Task] = None
-        self._avatar_future: Optional[asyncio.Future] = None
+        self._receive_task: asyncio.Task | None = None
+        self._avatar_future: asyncio.Future | None = None
         self._connected_event = asyncio.Event()
-        self._latest_session_updated_event: Optional[Dict[str, Any]] = None
+        self._latest_session_updated_event: dict[str, Any] | None = None
 
         endpoint = os.getenv("AZURE_VOICE_LIVE_ENDPOINT")
         model = os.getenv("VOICE_LIVE_MODEL")
@@ -196,7 +197,7 @@ class VoiceLiveSession:
         }
 
     # Maps language codes to env var keys for custom voice endpoints and standard fallbacks
-    _VOICE_CONFIG_MAP: Dict[str, Dict[str, str]] = {
+    _VOICE_CONFIG_MAP: ClassVar[dict[str, dict[str, str]]] = {
         "en": {
             "custom_endpoint_env": "AZURE_CUSTOM_VOICE_ENDPOINT_ID_EN",
             "standard_voice": "en-US-AndrewMultilingualNeural",
@@ -207,7 +208,7 @@ class VoiceLiveSession:
         },
     }
 
-    def _build_voice_config(self, language: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def _build_voice_config(self, language: str | None = None) -> dict[str, Any] | None:
         """Build voice config based on AZURE_VOICE_SOURCE.
 
         The avatar is a visual-only channel — it lip-syncs to whatever TTS
@@ -323,14 +324,14 @@ class VoiceLiveSession:
         if not self._ws_is_open():
             await self.connect()
 
-    def _build_avatar_config(self) -> Dict[str, Any]:
+    def _build_avatar_config(self) -> dict[str, Any]:
         character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
         style = os.getenv("AZURE_VOICE_AVATAR_STYLE")
         customized = os.getenv("AZURE_VOICE_AVATAR_CUSTOMIZED", "false").lower() in ("true", "1", "yes")
         video_width = int(os.getenv("AZURE_VOICE_AVATAR_WIDTH", "1280"))
         video_height = int(os.getenv("AZURE_VOICE_AVATAR_HEIGHT", "720"))
         bitrate = int(os.getenv("AZURE_VOICE_AVATAR_BITRATE", "2000000"))
-        config: Dict[str, Any] = {
+        config: dict[str, Any] = {
             "character": character,
             "customized": customized,
             "video": {"resolution": {"width": video_width, "height": video_height}, "bitrate": bitrate},
@@ -355,7 +356,7 @@ class VoiceLiveSession:
                 headers["Ocp-Apim-Subscription-Key"] = self._api_key
                 self.ws = await websockets.connect(ws_url, additional_headers=headers)
             else:
-                last_error: Optional[Exception] = None
+                last_error: Exception | None = None
                 for scope in self._token_scopes:
                     try:
                         token = await self._get_token(scope)
@@ -365,7 +366,7 @@ class VoiceLiveSession:
                         logger.info("[%s] Connected using token scope %s", self.session_id, scope)
                         last_error = None
                         break
-                    except Exception as exc:  # pylint: disable=broad-except
+                    except (RuntimeError, OSError, websockets.WebSocketException) as exc:
                         last_error = exc
                         logger.warning("[%s] Failed to connect with token scope %s: %s", self.session_id, scope, str(exc))
                 if self.ws is None:
@@ -373,7 +374,7 @@ class VoiceLiveSession:
                         raise RuntimeError(
                             "Authentication failed for all token scopes. "
                             "Set AZURE_OPENAI_API_KEY or ensure managed identity has Azure AI Services User role. "
-                            f"Last error: {str(last_error)}"
+                            f"Last error: {last_error!s}"
                         ) from last_error
                     raise RuntimeError("Authentication failed: no token scopes configured")
             logger.info("[%s] Connected to Azure Voice Live", self.session_id)
@@ -397,7 +398,7 @@ class VoiceLiveSession:
         token = await asyncio.get_event_loop().run_in_executor(None, credential.get_token, scope)
         return token.token
 
-    def _build_ws_url(self, agent_token: Optional[str] = None) -> str:
+    def _build_ws_url(self, agent_token: str | None = None) -> str:
         azure_ws_endpoint = self._endpoint.rstrip("/").replace("https://", "wss://")
         base = f"{azure_ws_endpoint}/voice-live/realtime?api-version={self._api_version}&model={self._model}"
         if agent_token:
@@ -407,7 +408,7 @@ class VoiceLiveSession:
     async def _send(
         self,
         event_type: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
         *,
         allow_reconnect: bool = True,
     ) -> None:
@@ -425,7 +426,7 @@ class VoiceLiveSession:
 
     @staticmethod
     def _generate_id(prefix: str) -> str:
-        return f"{prefix}{int(dt.datetime.utcnow().timestamp() * 1000)}"
+        return f"{prefix}{int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}"
 
     @staticmethod
     def _encode_client_sdp(client_sdp: str) -> str:
@@ -433,18 +434,18 @@ class VoiceLiveSession:
         return base64.b64encode(payload.encode("utf-8")).decode("ascii")
 
     @staticmethod
-    def _decode_server_sdp(server_sdp_raw: Optional[str]) -> Optional[str]:
+    def _decode_server_sdp(server_sdp_raw: str | None) -> str | None:
         if not server_sdp_raw:
             return None
         if server_sdp_raw.startswith("v=0"):
             return server_sdp_raw
         try:
             decoded_bytes = base64.b64decode(server_sdp_raw)
-        except Exception:
+        except (ValueError, TypeError):
             return server_sdp_raw
         try:
             decoded_text = decoded_bytes.decode("utf-8")
-        except Exception:
+        except UnicodeDecodeError:
             return server_sdp_raw
         try:
             payload = json.loads(decoded_text)
@@ -464,10 +465,10 @@ class VoiceLiveSession:
     def remove_event_queue(self, queue: asyncio.Queue) -> None:
         self._listeners.discard(queue)
 
-    def get_cached_session_updated_event(self) -> Optional[Dict[str, Any]]:
+    def get_cached_session_updated_event(self) -> dict[str, Any] | None:
         return self._latest_session_updated_event
 
-    async def _broadcast(self, event: Dict[str, Any]) -> None:
+    async def _broadcast(self, event: dict[str, Any]) -> None:
         if not self._listeners:
             return
         for queue in list(self._listeners):
@@ -618,7 +619,7 @@ class VoiceLiveSession:
                 self.ws = None
             logger.info("[%s] Azure Voice Live websocket closed", self.session_id)
 
-    async def _handle_response_done(self, event: Dict[str, Any]) -> None:
+    async def _handle_response_done(self, event: dict[str, Any]) -> None:
         response = event.get("response", {})
         status = response.get("status")
         if status != "completed":

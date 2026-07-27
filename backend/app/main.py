@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Dict
-
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
 import os
-import requests
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+
+import requests
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from .session_manager import SessionManager
 
@@ -73,27 +73,27 @@ async def warmup_ecom_api():
     if not ecom_api_url:
         logger.warning("ECOM_API_URL not configured, skipping API warmup")
         return
-    
+
     warmup_url = f"{ecom_api_url.rstrip('/')}/openapi"
-    
+
     try:
         logger.info("Warming up ecom API at %s", warmup_url)
-        
+
         # Run the blocking requests call in a thread to avoid blocking the event loop
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
-            None, 
+            None,
             lambda: requests.get(warmup_url, timeout=30)
         )
-        
+
         if response.status_code == 200:
             logger.info("Successfully warmed up ecom API - Status: %d", response.status_code)
         else:
             logger.warning("Ecom API warmup returned status %d", response.status_code)
-            
+
     except requests.exceptions.RequestException as e:
         logger.warning("Failed to warm up ecom API: %s", str(e))
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.error("Unexpected error during ecom API warmup: %s", str(e))
 
 
@@ -158,8 +158,10 @@ class CreateSessionRequest(BaseModel):
 
 
 @app.post("/sessions", response_model=SessionResponse)
-async def create_session(request: CreateSessionRequest = CreateSessionRequest()) -> SessionResponse:
+async def create_session(request: CreateSessionRequest | None = None) -> SessionResponse:
     try:
+        if request is None:
+            request = CreateSessionRequest()
         voice_source = os.getenv("AZURE_VOICE_SOURCE", "auto").lower().strip()
         session = await session_manager.create_session(
             avatar_enabled=request.avatar_enabled,
@@ -220,20 +222,19 @@ async def get_speech_token(session_id: str) -> SpeechTokenResponse:
         # (fromSubscription). Also fetch ICE relay token.
         import aiohttp
         ice_url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/avatar/relay/token/v1"
-        async with aiohttp.ClientSession() as http_session:
-            async with http_session.get(
-                ice_url,
-                headers={"Ocp-Apim-Subscription-Key": speech_key},
-            ) as ice_resp:
-                if ice_resp.status == 200:
-                    ice_data = await ice_resp.json()
-                    ice_servers = [IceServer(
-                        urls=ice_data.get("Urls", []),
-                        username=ice_data.get("Username", ""),
-                        credential=ice_data.get("Password", ""),
-                    )]
-                else:
-                    logger.warning("Failed to fetch ICE relay token: %d", ice_resp.status)
+        async with aiohttp.ClientSession() as http_session, http_session.get(
+            ice_url,
+            headers={"Ocp-Apim-Subscription-Key": speech_key},
+        ) as ice_resp:
+            if ice_resp.status == 200:
+                ice_data = await ice_resp.json()
+                ice_servers = [IceServer(
+                    urls=ice_data.get("Urls", []),
+                    username=ice_data.get("Username", ""),
+                    credential=ice_data.get("Password", ""),
+                )]
+            else:
+                logger.warning("Failed to fetch ICE relay token: %d", ice_resp.status)
 
         return SpeechTokenResponse(
             token=speech_key,
@@ -268,7 +269,7 @@ async def handle_avatar_offer(session_id: str, request: AvatarOfferRequest) -> A
 
 
 @app.post("/sessions/{session_id}/text")
-async def send_text_message(session_id: str, request: TextMessageRequest) -> Dict[str, str]:
+async def send_text_message(session_id: str, request: TextMessageRequest) -> dict[str, str]:
     session = await _ensure_session(session_id)
     await session.send_user_message(request.text)
     return {"status": "queued"}
@@ -299,8 +300,8 @@ async def session_ws(websocket: WebSocket, session_id: str):
                 await websocket.send_json(event)
         except WebSocketDisconnect:
             logger.info("Websocket emitter disconnect for session %s", session_id)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Emitter failed: %s", exc)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Emitter failed")
 
     emitter_task = asyncio.create_task(emitter())
 
@@ -339,7 +340,7 @@ async def session_ws(websocket: WebSocket, session_id: str):
 async def serve_spa(full_path: str):
     """Serve the React SPA for any non-API routes"""
     static_dir = Path(__file__).parent.parent / "static"
-    
+
     if static_dir.exists() and not full_path.startswith(("sessions", "ws", "health")):
         # First, try to serve the exact file (e.g. /assets/index-xxx.js)
         file_path = static_dir / full_path
@@ -351,6 +352,6 @@ async def serve_spa(full_path: str):
             if full_path == "" or full_path == "index.html":
                 asyncio.create_task(warmup_ecom_api())
             return FileResponse(index_file)
-    
+
     # Fallback 404 for missing routes
     raise HTTPException(status_code=404, detail="Not found")

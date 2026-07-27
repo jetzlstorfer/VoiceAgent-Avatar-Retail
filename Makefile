@@ -54,10 +54,6 @@ run-copy: build-frontend copy-frontend
 	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir $(BACKEND_DIR)
 
 lint-backend: install
-	@if [ ! -x "$(VENV_DIR)/bin/ruff" ]; then \
-		echo "Installing Ruff in backend virtual environment..."; \
-		$(PIP) install ruff; \
-	fi
 	$(VENV_DIR)/bin/ruff check $(BACKEND_DIR)/app $(BACKEND_DIR)/test_avatar_characters.py
 
 lint-frontend:
