@@ -1,12 +1,12 @@
-fastapi>=0.141.1
+fastapi>=0.142.2
 uvicorn[standard]>=0.54.0
 websockets>=17.1
-azure-identity>=1.25.3
-python-dotenv>=1.2.3
+azure-identity>=1.26.0
+python-dotenv>=1.2.4
 azure-search-documents>=12.0.0
 azure-core>=1.41.0
 requests>=2.34.2
 aiohttp>=3.14.3
 numpy>=2.5.3
 aiortc>=1.15.0
-ruff==0.16.9
+ruff==0.16.10
